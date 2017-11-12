@@ -78,5 +78,10 @@ namespace AvalonStudio.Controls
         {
             IoC.Get<IShell>().RemoveDocument(this);
         }
+
+        public virtual void Open ()
+        {
+
+        }
     }
 }

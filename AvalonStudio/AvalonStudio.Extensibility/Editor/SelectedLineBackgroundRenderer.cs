@@ -7,9 +7,9 @@ using System;
 
 namespace AvalonStudio.TextEditor.Rendering
 {
-    public class SelectedLineBackgroundRenderer : IBackgroundRenderer
+    public class SelectedLineBackgroundRenderer : IBackgroundRenderer, IDisposable
     {
-        private readonly AvaloniaEdit.TextEditor _textEditor;
+        private AvaloniaEdit.TextEditor _textEditor;
 
         public static readonly IBrush BackgroundBrush = new SolidColorBrush(Color.FromArgb(22, 0x0e, 0x0e, 0x0e));
         public static readonly IBrush BorderBrush = new SolidColorBrush(Color.FromArgb(255, 57, 57, 57));
@@ -58,6 +58,11 @@ namespace AvalonStudio.TextEditor.Rendering
                     
                 }
             }
+        }
+
+        public void Dispose()
+        {
+            _textEditor = null;
         }
     }
 }

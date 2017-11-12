@@ -45,6 +45,11 @@ namespace AvalonStudio.Languages.Xaml
             IoC.Get<IShell>().RemoveDocument(this);
         }
 
+        public void Open ()
+        {
+
+        }
+
         public void Save()
         {
             ((IFileDocumentTabViewModel)_textEditor).Save();

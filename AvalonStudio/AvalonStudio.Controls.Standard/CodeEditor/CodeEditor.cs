@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Threading;
 using AvaloniaEdit;
@@ -27,8 +28,6 @@ using AvalonStudio.TextEditor.Rendering;
 using AvalonStudio.Utils;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
@@ -365,8 +364,8 @@ namespace AvalonStudio.Controls.Standard.CodeEditor
                     var position = visualLocation - TextArea.TextView.ScrollOffset;
                     position = position.Transform(TextArea.TextView.TransformToVisual(TextArea).Value);
 
-                    _intellisenseControl.SetLocation(position);
-                    _completionAssistantControl.SetLocation(position);
+                    _intellisenseControl?.SetLocation(position);
+                    _completionAssistantControl?.SetLocation(position);
 
                     _selectedWordBackgroundRenderer.SelectedWord = GetWordAtOffset(CaretOffset);
 
@@ -851,36 +850,16 @@ namespace AvalonStudio.Controls.Standard.CodeEditor
             base.OnTemplateApplied(e);
 
             _toolTip = e.NameScope.Find<CodeEditorToolTip>("PART_Tooltip");
-            _toolTip.AttachEditor(this);
+            //_toolTip.AttachEditor(this);
 
             _intellisenseControl = e.NameScope.Find<Intellisense>("PART_Intellisense");
             _completionAssistantControl = e.NameScope.Find<CompletionAssistantView>("PART_CompletionAssistant");
 
-            _intellisenseControl.PlacementTarget = TextArea;
-            _intellisenseControl.DataContext = _intellisense;
+          //  _intellisenseControl.PlacementTarget = TextArea;
+            //_intellisenseControl.DataContext = _intellisense;
 
-            _completionAssistantControl.PlacementTarget = TextArea;
-            _completionAssistantControl.DataContext = _completionAssistant;
-        }
-
-        private void List_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
-        {
-            switch (e.Action)
-            {
-                case NotifyCollectionChangedAction.Add:
-                    foreach (var transformer in e.NewItems)
-                    {
-                        TextArea.TextView.LineTransformers.Add(transformer as IVisualLineTransformer);
-                    }
-                    break;
-
-                case NotifyCollectionChangedAction.Remove:
-                    foreach (var transformer in e.OldItems)
-                    {
-                        TextArea.TextView.LineTransformers.Remove(transformer as IVisualLineTransformer);
-                    }
-                    break;
-            }
+            //_completionAssistantControl.PlacementTarget = TextArea;
+            //_completionAssistantControl.DataContext = _completionAssistant;
         }
 
         public static readonly StyledProperty<int> CaretOffsetProperty =
@@ -971,26 +950,7 @@ namespace AvalonStudio.Controls.Standard.CodeEditor
         {
             get { return GetValue(LanguageServiceNameProperty); }
             set { SetValue(LanguageServiceNameProperty, value); }
-        }
-
-
-        public static readonly StyledProperty<ObservableCollection<IVisualLineTransformer>> DocumentLineTransformersProperty =
-            AvaloniaProperty.Register<CodeEditor, ObservableCollection<IVisualLineTransformer>>(nameof(DocumentLineTransformers), new ObservableCollection<IVisualLineTransformer>());
-
-        public ObservableCollection<IVisualLineTransformer> DocumentLineTransformers
-        {
-            get { return GetValue(DocumentLineTransformersProperty); }
-            set { SetValue(DocumentLineTransformersProperty, value); }
-        }
-
-        public static readonly StyledProperty<ObservableCollection<IBackgroundRenderer>> BackgroundRenderersProperty =
-            AvaloniaProperty.Register<CodeEditor, ObservableCollection<IBackgroundRenderer>>(nameof(BackgroundRenderers), new ObservableCollection<IBackgroundRenderer>(), defaultBindingMode: BindingMode.TwoWay);
-
-        public ObservableCollection<IBackgroundRenderer> BackgroundRenderers
-        {
-            get { return GetValue(BackgroundRenderersProperty); }
-            set { SetValue(BackgroundRenderersProperty, value); }
-        }
+        }        
 
         public static readonly StyledProperty<ColorScheme> ColorSchemeProperty =
             AvaloniaProperty.Register<CodeEditor, ColorScheme>(nameof(ColorScheme));
@@ -1133,8 +1093,16 @@ namespace AvalonStudio.Controls.Standard.CodeEditor
 
             _breakpointMargin.Dispose();
             _lineNumberMargin.Dispose();
+            _selectedLineBackgroundRenderer.Dispose();
 
             base.OnDetachedFromVisualTree(e);
+        }
+
+        protected override void OnDetachedFromLogicalTree(LogicalTreeAttachmentEventArgs e)
+        {
+            base.OnDetachedFromLogicalTree(e);
+
+            System.Console.WriteLine(InheritanceParent.GetType().FullName);
         }
     }
 }

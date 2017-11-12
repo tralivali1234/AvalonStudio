@@ -6,15 +6,54 @@ using System.Collections.Specialized;
 using System.Linq;
 using Avalonia.LogicalTree;
 using AvalonStudio.Utils;
+using System.Collections;
+using Avalonia.Controls.Generators;
+using Avalonia.Controls.Mixins;
 
 namespace AvalonStudio.Controls
 {
-    public class DocumentTabControl : SelectingItemsControl
+    public class DocumentTabControlItem : ContentControl, ISelectable
     {
+        public DocumentTabControlItem()
+        {
+
+        }
+
+        /// <summary>
+        /// Defines the <see cref="IsSelected"/> property.
+        /// </summary>
+        public static readonly StyledProperty<bool> IsSelectedProperty =
+            AvaloniaProperty.Register<DocumentTabControlItem, bool>(nameof(IsSelected));
+
+        /// <summary>
+        /// Initializes static members of the <see cref="ListBoxItem"/> class.
+        /// </summary>
+        static DocumentTabControlItem()
+        {
+            SelectableMixin.Attach<DocumentTabControlItem>(IsSelectedProperty);
+            FocusableProperty.OverrideDefaultValue<DocumentTabControlItem>(true);
+        }
+
+        /// <summary>
+        /// Gets or sets the selection state of the item.
+        /// </summary>
+        public bool IsSelected
+        {
+            get { return GetValue(IsSelectedProperty); }
+            set { SetValue(IsSelectedProperty, value); }
+        }
+    }
+
+    public class DocumentTabControl : SelectingItemsControl
+    {        
+        static DocumentTabControl()
+        {            
+        }
+
         public DocumentTabControl()
         {
-            SelectionMode = SelectionMode.AlwaysSelected;            
-        }        
+            SelectionMode = SelectionMode.AlwaysSelected;
+        }
 
         /// <summary>
         /// Defines an <see cref="IMemberSelector"/> that selects the content of a <see cref="TabItem"/>.
@@ -36,19 +75,56 @@ namespace AvalonStudio.Controls
         {
             get { return GetValue(HeaderTemplateProperty); }
             set { SetValue(HeaderTemplateProperty, value); }
-        }                
-
-        protected override void ItemsCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
-        {
-            base.ItemsCollectionChanged(sender, e);
         }
+
+        protected override IItemContainerGenerator CreateItemContainerGenerator()
+        {
+            return null;
+        }
+
+        //protected override void ItemsCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+        //{
+        //    base.ItemsCollectionChanged(sender, e);
+
+        //    if (e.NewItems != null)
+        //    {
+        //        foreach (var item in e.NewItems.OfType<ILogical>())
+        //        {
+        //            LogicalChildren.Add(item);
+        //        }
+        //    }
+
+        //    if (e.OldItems != null)
+        //    {
+        //        foreach (var item in e.OldItems.OfType<ILogical>())
+        //        {
+        //            LogicalChildren.Remove(item);
+        //        }
+        //    }
+        //}
 
         protected override void ItemsChanged(AvaloniaPropertyChangedEventArgs e)
         {
             base.ItemsChanged(e);
+            
+            //if (e.OldValue != null)
+            //{
+            //    foreach (var item in (e.OldValue as IEnumerable).OfType<ILogical>())
+            //    {                    
+            //        LogicalChildren.Remove(item);
+            //    }
+            //}
+
+            //if (e.NewValue != null)
+            //{
+            //    foreach (var item in (e.NewValue as IEnumerable).OfType<ILogical>())
+            //    {
+            //        LogicalChildren.Add(item);
+            //    }
+            //}
 
             if (Items.Count() > 0)
-            {                
+            {
                 SelectedIndex = 0;
             }
         }
@@ -71,6 +147,15 @@ namespace AvalonStudio.Controls
                 return o;
             }
         }
+
+        protected override void OnContainersMaterialized(ItemContainerEventArgs e)
+        {
+            base.OnContainersMaterialized(e);
+
+
+        }
+
+        
 
         protected override void OnTemplateApplied(TemplateAppliedEventArgs e)
         {

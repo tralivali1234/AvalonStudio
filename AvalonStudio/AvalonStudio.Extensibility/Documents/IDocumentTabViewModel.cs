@@ -16,5 +16,7 @@ namespace AvalonStudio.Controls
         string Title { get; set; }
 
         void Close();
+
+        void Open();
     }
 }

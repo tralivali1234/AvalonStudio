@@ -51,7 +51,8 @@ namespace AvalonStudio.Controls
                 {
                     CloseDocument(TemporaryDocument);
                 }
-                
+
+                document.Open();
                 Documents.Add(document);
                 SelectedDocument = document;
 

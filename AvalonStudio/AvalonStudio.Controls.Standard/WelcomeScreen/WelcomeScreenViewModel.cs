@@ -34,11 +34,26 @@
             LoadRecentProjects();
         }
 
+        public override void Open()
+        {
+            base.Open();
+
+            var shell = IoC.Get<IShell>();
+            shell.SolutionChanged += ShellOnSolutionChanged;
+        }
+
+        public override void Close()
+        {
+            base.Close();
+
+            var shell = IoC.Get<IShell>();
+            shell.SolutionChanged -= ShellOnSolutionChanged;
+        }        
+
         public void Activation()
         {
             var shell = IoC.Get<IShell>();
-            shell.AddDocument(this, false);
-            shell.SolutionChanged += ShellOnSolutionChanged;
+            shell.AddDocument(this, false);            
 
             //LoadNewsFeed().GetAwaiter().GetResult();
             //LoadVideoFeed().GetAwaiter().GetResult();
