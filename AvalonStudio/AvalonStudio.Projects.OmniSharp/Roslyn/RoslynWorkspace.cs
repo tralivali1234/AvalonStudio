@@ -149,6 +149,11 @@ namespace RoslynPad.Roslyn
             OnProjectRemoved(proj.Id);
         }
 
+        public void UnregisterSolution (AvalonStudio.Projects.ISolution solution)
+        {
+            s_solutionWorkspaces.Remove(solution);
+        }
+
         public async Task ReevaluateProject(AvalonStudio.Projects.IProject project)
         {
             var proj = project as OmniSharpProject;

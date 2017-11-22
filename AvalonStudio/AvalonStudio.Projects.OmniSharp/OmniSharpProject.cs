@@ -79,6 +79,7 @@ namespace AvalonStudio.Projects.OmniSharp
             if(workspace.CurrentSolution.Projects.Count() == 0)
             {
                 workspace.ClearSolution();
+                workspace.UnregisterSolution(Solution);
                 workspace.Dispose();
             }
         }
