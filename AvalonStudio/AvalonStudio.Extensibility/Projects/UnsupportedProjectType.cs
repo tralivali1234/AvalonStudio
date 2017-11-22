@@ -132,5 +132,9 @@ namespace AvalonStudio.Projects
         {
             return Task.CompletedTask;
         }
+
+        public void Unload()
+        {
+        }
     }
 }

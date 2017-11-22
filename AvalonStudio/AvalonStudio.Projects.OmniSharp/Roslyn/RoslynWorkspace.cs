@@ -137,6 +137,18 @@ namespace RoslynPad.Roslyn
             return (CurrentSolution.GetProject(loadData.info.Id), loadData.projectReferences, loadData.targetPath);
         }
 
+        public void RemoveProject (AvalonStudio.Projects.IProject project)
+        {
+            var proj = GetProject(project);
+
+            foreach(var documentId in proj.DocumentIds)
+            {
+                OnDocumentRemoved(documentId);
+            }
+
+            OnProjectRemoved(proj.Id);
+        }
+
         public async Task ReevaluateProject(AvalonStudio.Projects.IProject project)
         {
             var proj = project as OmniSharpProject;
@@ -293,11 +305,6 @@ namespace RoslynPad.Roslyn
                 default:
                     return false;
             }
-        }
-
-        protected override void Dispose(bool finalize)
-        {
-            base.Dispose(finalize);
         }
 
         protected override void ApplyDocumentTextChanged(DocumentId document, SourceText newText)

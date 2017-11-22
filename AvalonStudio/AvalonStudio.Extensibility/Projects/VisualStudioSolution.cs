@@ -59,6 +59,17 @@ namespace AvalonStudio.Extensibility.Projects
             Items = new ObservableCollection<ISolutionItem>();
         }
 
+        public async Task UnloadAsync()
+        {
+            await Task.Run(() =>
+            {
+                foreach (var project in Projects)
+                {
+                    project.Unload();
+                }
+            });
+        }
+
         public async Task LoadSolutionAsync ()
         {
             await Task.Run(async () =>

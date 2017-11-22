@@ -2,7 +2,6 @@ using AvalonStudio.Extensibility;
 using AvalonStudio.Extensibility.Commands;
 using AvalonStudio.Shell;
 using ReactiveUI;
-using System;
 using System.Windows.Input;
 
 namespace AvalonStudio.Controls.Standard.SolutionExplorer.Commands
@@ -13,10 +12,10 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer.Commands
 
         public CloseSolutionCommandDefinition()
         {
-            command = ReactiveCommand.Create(() =>
+            command = ReactiveCommand.Create(async () =>
             {
                 var shell = IoC.Get<IShell>();
-                shell.CloseSolution();
+                await shell.CloseSolutionAsync();
             });
         }
 

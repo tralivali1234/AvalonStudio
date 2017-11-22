@@ -70,6 +70,19 @@ namespace AvalonStudio.Projects.OmniSharp
             };
         }
 
+        public override void Unload()
+        {
+            var workspace = RoslynWorkspace.GetWorkspace(Solution);
+
+            workspace.RemoveProject(this);
+
+            if(workspace.CurrentSolution.Projects.Count() == 0)
+            {
+                workspace.ClearSolution();
+                workspace.Dispose();
+            }
+        }
+
         protected override bool FilterProjectFile => false;
 
         public List<string> UnresolvedReferences { get; set; }

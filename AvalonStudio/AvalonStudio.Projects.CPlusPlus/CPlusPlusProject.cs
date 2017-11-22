@@ -679,5 +679,9 @@ namespace AvalonStudio.Projects.CPlusPlus
         {
             return Name.CompareTo(other.Name);
         }
+
+        public override void Unload()
+        {
+        }
     }
 }

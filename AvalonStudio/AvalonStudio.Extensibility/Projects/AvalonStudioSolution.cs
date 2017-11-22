@@ -232,5 +232,10 @@ namespace AvalonStudio.Projects
         {
             throw new NotImplementedException();
         }
+
+        public Task UnloadAsync()
+        {
+            throw new NotImplementedException();
+        }
     }
 }

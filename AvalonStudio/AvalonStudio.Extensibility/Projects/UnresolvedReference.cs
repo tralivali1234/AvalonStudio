@@ -145,6 +145,10 @@
         {
             return Task.CompletedTask;
         }
+
+        public void Unload()
+        {
+        }
     }
 
     public class UnresolvedReference : IProject
@@ -282,6 +286,11 @@
         public Task LoadFilesAsync()
         {
             return Task.CompletedTask;
+        }
+
+        public void Unload()
+        {
+            
         }
     }
 }

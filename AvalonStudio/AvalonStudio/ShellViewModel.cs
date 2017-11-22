@@ -756,7 +756,7 @@ namespace AvalonStudio
         {
             if (CurrentSolution != null)
             {
-                CloseSolution();
+                await CloseSolutionAsync();
             }
 
             if (System.IO.File.Exists(path))
@@ -776,7 +776,7 @@ namespace AvalonStudio
             }
         }
 
-        public void CloseSolution()
+        public async Task CloseSolutionAsync()
         {
             var documentsToClose = DocumentTabs.Documents.ToList();
 
@@ -788,7 +788,11 @@ namespace AvalonStudio
                 }
             }
 
-            CurrentSolution = null;
+            if (CurrentSolution != null)
+            {
+                await CurrentSolution.UnloadAsync();
+                CurrentSolution = null;
+            }
         }
 
         public void CloseDocumentsForProject(IProject project)
