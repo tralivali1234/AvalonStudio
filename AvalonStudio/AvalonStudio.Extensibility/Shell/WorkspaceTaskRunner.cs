@@ -22,19 +22,16 @@ namespace AvalonStudio.Shell
         {
             if(CurrentTask == null)
             {
-                CurrentTask = Task.Run(action);
-
-                onTaskChangedSubject.OnNext(CurrentTask);
-
-                CurrentTask.ContinueWith(_ =>
+                CurrentTask = Task.Run(action).ContinueWith(_ =>
                 {
-                    CurrentTask = null;
-
                     Dispatcher.UIThread.InvokeAsync(() =>
                     {
+                        CurrentTask = null;
                         onTaskChangedSubject.OnNext(CurrentTask);
                     });
                 });
+
+                onTaskChangedSubject.OnNext(CurrentTask);
             }
 
             return CurrentTask;

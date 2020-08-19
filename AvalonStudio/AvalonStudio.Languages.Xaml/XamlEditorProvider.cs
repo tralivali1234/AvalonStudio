@@ -1,20 +1,15 @@
-﻿using AvalonStudio.Controls;
-using AvalonStudio.Documents;
-using AvalonStudio.Extensibility.Editor;
+﻿using AvalonStudio.Documents;
+using AvalonStudio.Extensibility;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.Projects;
+using AvalonStudio.Shell;
+using System.Threading.Tasks;
 
 namespace AvalonStudio.Languages.Xaml
 {
-    public class XamlEditorProvider : IEditorProvider
+    [ExportEditorProvider]
+    internal class XamlEditorProvider : IEditorProvider
     {
-        public void Activation()
-        {
-        }
-
-        public void BeforeActivation()
-        {
-        }
-
         public bool CanEdit(ISourceFile file)
         {
             bool result = false;
@@ -30,9 +25,9 @@ namespace AvalonStudio.Languages.Xaml
             return result;
         }
 
-        public IFileDocumentTabViewModel CreateViewModel(ISourceFile file)
+        public async Task<ITextDocumentTabViewModel> CreateViewModel(ISourceFile file)
         {
-            return new XamlEditorViewModel(file);
+            return new XamlEditorViewModel(await IoC.Get<IStudio>().CreateDocumentAsync(file.FilePath), file);
         }
     }
 }

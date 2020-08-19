@@ -7,7 +7,7 @@ using AvalonStudio.Documents;
 using Microsoft.CodeAnalysis.Text;
 using TextChangeEventArgs = Microsoft.CodeAnalysis.Text.TextChangeEventArgs;
 
-namespace RoslynPad.Editor.Windows
+namespace AvalonStudio.Projects.OmniSharp.Roslyn.Editor
 {
     public sealed class AvalonEditTextContainer : SourceTextContainer, IDisposable
     {
@@ -19,7 +19,7 @@ namespace RoslynPad.Editor.Windows
         /// <summary>
         /// If set, <see cref="TextEditor.CaretOffset"/> will be updated.
         /// </summary>
-        public IEditor Editor { get; set; }
+        public ITextEditor Editor { get; set; }
 
         public override SourceText CurrentText => _currentText;
 
@@ -59,7 +59,7 @@ namespace RoslynPad.Editor.Windows
             using (Document.RunUpdate())
             {
                 var editor = Editor;
-                var caretOffset = editor?.CaretOffset ?? 0;
+                var caretOffset = editor?.Offset ?? 0;
                 var documentOffset = 0;
                 try
                 {
@@ -97,7 +97,7 @@ namespace RoslynPad.Editor.Windows
                     if (caretOffset > newText.Length)
                         caretOffset = newText.Length;
                     if (editor != null)
-                        editor.CaretOffset = caretOffset;
+                        editor.Offset = caretOffset;
                 }
             }
         }
@@ -126,7 +126,20 @@ namespace RoslynPad.Editor.Windows
 
             public override int Length => _sourceText.Length;
 
-            public override char this[int position] => _sourceText[position];
+            public override char this[int position]
+            {
+                get
+                {
+                    if (position >= 0 && position < _sourceText.Length)
+                    {
+                        return _sourceText[position];
+                    }
+                    else
+                    {
+                        return '\0';
+                    }
+                }
+            }
 
             public override SourceText GetSubText(TextSpan span) => new AvalonEditSourceText(_container, _sourceText.GetSubText(span));
 

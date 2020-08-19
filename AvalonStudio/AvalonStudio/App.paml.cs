@@ -1,52 +1,102 @@
 using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Diagnostics;
+using Avalonia.Threading;
 using Avalonia.Logging.Serilog;
 using Avalonia.Markup.Xaml;
 using AvalonStudio.Packages;
 using AvalonStudio.Platforms;
-using AvalonStudio.Repositories;
+using AvalonStudio.Shell;
 using Serilog;
 using System;
+using AvalonStudio.Extensibility.Studio;
+using AvalonStudio.Extensibility;
+using System.IO;
+using AvalonStudio.Utils;
+using AvalonStudio.Packaging;
+using AvalonStudio.Terminals.Unix;
 
 namespace AvalonStudio
 {
     internal class App : Application
     {
+#if !DEBUG
+        static void Print(Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            Console.WriteLine(ex.StackTrace);
+            if (ex.InnerException != null)
+            {
+                Print(ex.InnerException);
+            }
+        }
+#endif
+
         [STAThread]
         private static void Main(string[] args)
         {
+            UnixPsuedoTerminal.Trampoline(args);
+        
+#if !DEBUG
+        try
+            {
+#endif
             if (args == null)
             {
                 throw new ArgumentNullException(nameof(args));
             }
 
-            var builder = AppBuilder.Configure<App>().UseReactiveUI().AvalonStudioPlatformDetect().AfterSetup(async _ =>
+            BuildAvaloniaApp().BeforeStarting(_ =>
             {
+                var studio = IoC.Get<IStudio>();
+
+                InitializeLogging();
+
                 Platform.Initialise();
 
-                PackageSources.InitialisePackageSources();
-
-                var container = CompositionRoot.CreateContainer();
-
-                ShellViewModel.Instance = container.GetExport<ShellViewModel>();
-
-                await PackageManager.LoadAssetsAsync();
-            });
-
-            InitializeLogging();
-
-            builder.Start<MainWindow>();
+                Dispatcher.UIThread.Post(async () =>
+                   {
+                       await PackageManager.LoadAssetsAsync().ConfigureAwait(false);
+                       
+                   });
+            })
+            .StartShellApp<AppBuilder, MainWindow>("AvalonStudio", null, () => new MainWindowViewModel());
+#if !DEBUG
+    }
+            catch (Exception e)
+            {
+                Print(e);
+            }
+            finally
+#endif
+            {
+                Application.Current.Exit();
+            }
         }
 
         public static AppBuilder BuildAvaloniaApp()
-            => AppBuilder.Configure<App>().UsePlatformDetect().UseReactiveUI();
+        {
+            var result = AppBuilder.Configure<App>();
+
+            if(Platform.PlatformIdentifier == Platforms.PlatformID.Win32NT)
+            {
+                result
+                    .UseWin32()
+                    .UseSkia();
+            }
+            else
+            {
+                result.UsePlatformDetect();
+            }
+
+            return result
+                .With(new Win32PlatformOptions { AllowEglInitialization = true, UseDeferredRendering = true })
+                .With(new MacOSPlatformOptions { ShowInDock = true })
+                .With(new AvaloniaNativePlatformOptions { UseDeferredRendering = true, UseGpu = true })
+                .With(new X11PlatformOptions { UseGpu = true, UseEGL = true });
+        }
 
         public override void Initialize()
         {
             AvaloniaXamlLoader.Load(this);
-
-            // DataTemplates.Add(new ViewLocatorDataTemplate());
         }
 
         private static void InitializeLogging()
@@ -57,31 +107,6 @@ namespace AvalonStudio
                 .WriteTo.Trace(outputTemplate: "{Area}: {Message}")
                 .CreateLogger());
 #endif
-        }
-
-        public static void AttachDevTools(Window window)
-        {
-#if DEBUG
-            DevTools.Attach(window);
-#endif
-        }
-    }
-
-    public static class AppBuilderExtensions
-    {
-        public static AppBuilder AvalonStudioPlatformDetect(this AppBuilder builder)
-        {
-            switch (Platform.PlatformIdentifier)
-            {
-                case Platforms.PlatformID.Win32NT:
-                    return builder.UseWin32().UseSkia();
-
-                case Platforms.PlatformID.Unix:
-                    return builder.UseGtk3().UseSkia();
-
-                default:
-                    return builder.UsePlatformDetect();
-            }
         }
     }
 }

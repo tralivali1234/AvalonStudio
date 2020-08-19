@@ -2,11 +2,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFrameworks>netcoreapp2.0</TargetFrameworks>
-      
+    <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+    <TieredCompilation>True</TieredCompilation>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia.Desktop">
-      <Version>0.5.2-build4485-alpha</Version>
-    </PackageReference>
+    <PackageReference Include="Avalonia.Desktop" />
   </ItemGroup>
 </Project>

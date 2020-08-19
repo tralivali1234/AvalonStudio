@@ -90,8 +90,7 @@ Program.main();
             Project = this;
 
             var tsContext = new TypeScriptContext();
-            tsContext.LoadComponents();
-            IoC.RegisterConstant(tsContext, typeof(TypeScriptContext));
+            tsContext.LoadComponents();            
             TypeScriptContext = tsContext;
         }
 
@@ -161,16 +160,14 @@ Program.main();
         public override ITestFramework TestFramework { get; set; }
 
         [JsonIgnore]
-        public override IToolChain ToolChain
+        public override IToolchain ToolChain
         {
-            get => IoC.Get<IShell>().ToolChains.FirstOrDefault(tc => tc.GetType() == typeof(TypeScriptToolchain));
+            get => IoC.GetInstances<IToolchain>().FirstOrDefault(tc => tc.GetType() == typeof(TypeScriptToolchain));
             set { throw new NotSupportedException(); }
         }
 
         [JsonConverter(typeof(ExpandoObjectConverter))]
         public override dynamic ToolchainSettings { get; set; }
-
-        public override Guid ProjectTypeId => throw new NotImplementedException();
 
         public override void AddReference(IProject project)
         {
@@ -207,20 +204,32 @@ Program.main();
             throw new NotImplementedException();
         }
 
-        public override void RemoveReference(IProject project)
+        public override bool RemoveReference(IProject project)
         {
-            throw new NotImplementedException();
+            return false;
         }
 
-        public override void ResolveReferences()
+        public override Task ResolveReferencesAsync()
         {
-            //throw new NotImplementedException();
+            return Task.CompletedTask;
         }
 
         public override void Save()
         {
             //TODO: Anything with references?
             SerializedObject.Serialize(Location, this); //Write the project
+        }
+
+        public override bool IsItemSupported(string languageName)
+        {
+            switch(languageName)
+            {
+                case "TS":
+                    return true;
+
+                default:
+                    return false;
+            }
         }
     }
 }

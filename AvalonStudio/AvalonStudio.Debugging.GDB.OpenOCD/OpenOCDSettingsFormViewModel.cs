@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using AvalonStudio.MVVM;
 using AvalonStudio.Platforms;
@@ -9,6 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using AvalonStudio.Extensibility;
+using System.Reactive;
 
 namespace AvalonStudio.Debugging.GDB.OpenOCD
 {
@@ -30,15 +32,15 @@ namespace AvalonStudio.Debugging.GDB.OpenOCD
             interfaceConfigFile = settings.InterfaceConfigFile;
             targetConfigFile = settings.TargetConfigFile;
 
-            BrowseInterfaceConfigFileCommand = ReactiveCommand.Create(async () =>
+            BrowseInterfaceConfigFileCommand = ReactiveCommand.CreateFromTask(async () =>
             {
                 var ofd = new OpenFileDialog();
-                ofd.InitialFileName = Path.Combine(BaseDirectory, "scripts", "interface");
+                ofd.InitialDirectory = Path.Combine(BaseDirectory, "scripts", "interface");
                 ofd.Filters.Add(new FileDialogFilter { Name = "OpenOCD Config File", Extensions = new List<string> { "cfg" } });
                 ofd.AllowMultiple = false;
                 ofd.Title = "Open OpenOCD Interface Config File";
 
-                var result = await ofd.ShowAsync();
+                var result = await ofd.ShowAsync(Application.Current.MainWindow);
 
                 if (result != null && !string.IsNullOrEmpty(result.FirstOrDefault()))
                 {
@@ -46,15 +48,15 @@ namespace AvalonStudio.Debugging.GDB.OpenOCD
                 }
             });
 
-            BrowseTargetConfigFileCommand = ReactiveCommand.Create(async () =>
+            BrowseTargetConfigFileCommand = ReactiveCommand.CreateFromTask(async () =>
             {
                 var ofd = new OpenFileDialog();
-                ofd.InitialFileName = Path.Combine(BaseDirectory, "scripts", "target");
+                ofd.InitialDirectory = Path.Combine(BaseDirectory, "scripts", "target");
                 ofd.Filters.Add(new FileDialogFilter { Name = "OpenOCD Config File", Extensions = new List<string> { "cfg" } });
                 ofd.AllowMultiple = false;
                 ofd.Title = "Open OpenOCD Target Config File";
 
-                var result = await ofd.ShowAsync();
+                var result = await ofd.ShowAsync(Application.Current.MainWindow);
 
                 if (result != null && !string.IsNullOrEmpty(result.FirstOrDefault()))
                 {
@@ -89,8 +91,8 @@ namespace AvalonStudio.Debugging.GDB.OpenOCD
             }
         }
 
-        public ReactiveCommand BrowseInterfaceConfigFileCommand { get; }
-        public ReactiveCommand BrowseTargetConfigFileCommand { get; }
+        public ReactiveCommand<Unit, Unit> BrowseInterfaceConfigFileCommand { get; }
+        public ReactiveCommand<Unit, Unit> BrowseTargetConfigFileCommand { get; }
 
         private void Save()
         {

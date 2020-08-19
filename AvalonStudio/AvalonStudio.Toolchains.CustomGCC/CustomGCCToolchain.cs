@@ -1,4 +1,5 @@
-﻿using AvalonStudio.Platforms;
+﻿using AvalonStudio.Extensibility.Shell;
+using AvalonStudio.Platforms;
 using AvalonStudio.Projects;
 using AvalonStudio.Projects.CPlusPlus;
 using AvalonStudio.Projects.Standard;
@@ -6,17 +7,19 @@ using AvalonStudio.Toolchains.GCC;
 using AvalonStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.Composition;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace AvalonStudio.Toolchains.CustomGCC
 {
+    [ExportToolchain]
+    [Shared]
     public class CustomGCCToolchain : GCCToolchain
     {
         private string _executableExtension;
         private string _staticLibraryExtension;
-        private string _binDirectory;
         private CustomGCCToolchainProjectSettings _settings;
 
         public override string ExecutableExtension => _executableExtension;
@@ -27,7 +30,7 @@ namespace AvalonStudio.Toolchains.CustomGCC
 
         public override string Description => "Allows developer to specify any GCC compatible toolchain to use.";
 
-        public override string BinDirectory => _binDirectory;
+        public override string BinDirectory => _settings.BasePath;
 
         public override string CCExecutable => _settings.CCExecutable;
 
@@ -42,6 +45,16 @@ namespace AvalonStudio.Toolchains.CustomGCC
         public override string GDBExecutable => _settings.GDBExecutable;
 
         public override string LibraryQueryCommand => Path.Combine(BinDirectory, _settings.LibraryQueryCommand + Platform.ExecutableExtension);
+
+        protected override bool RunWithSystemPaths => true;
+
+        public override string[] ExtraPaths => _settings.ExtraPaths;
+
+        [ImportingConstructor]
+        public CustomGCCToolchain(IStatusBar statusBar)
+            : base(statusBar)
+        {
+        }
 
         public override bool CanHandle(IProject project)
         {
@@ -81,6 +94,17 @@ namespace AvalonStudio.Toolchains.CustomGCC
             }
 
             return result;
+        }
+
+        public override bool ValidateToolchainExecutables(IConsole console)
+        {
+            if (!CustomGCCToolchainProfiles.Instance.Profiles.ContainsKey(_settings.InstanceName))
+            {
+                console.WriteLine($"Toolchain profile: {_settings.InstanceName} doesnt exist.");
+                return false;
+            }
+
+            return base.ValidateToolchainExecutables(console);
         }
 
         public override string GetCompilerArguments(IStandardProject superProject, IStandardProject project, ISourceFile file)
@@ -294,9 +318,7 @@ namespace AvalonStudio.Toolchains.CustomGCC
             return new List<object>
             {
                 new GccProfileFormViewModel(project),
-                new CompileSettingsFormViewModel(project),
-                new LinkerSettingsFormViewModel(project)
-        };
+            }.Concat(base.GetConfigurationPages(project)).ToList();
         }
 
         private string GetLinkerScriptLocation(IStandardProject project)
@@ -370,8 +392,7 @@ namespace AvalonStudio.Toolchains.CustomGCC
             _settings = project.GetToolchainSettings<CustomGCCToolchainProjectSettings>();
 
             _staticLibraryExtension = _settings.StaticLibraryExtension;
-            _executableExtension = _settings.ExecutableExtension;
-            _binDirectory = _settings.BasePath;
+            _executableExtension = _settings.ExecutableExtension;       
 
             return await base.InstallAsync(console, project);
         }

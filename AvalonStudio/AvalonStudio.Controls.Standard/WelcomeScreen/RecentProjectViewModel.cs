@@ -1,9 +1,11 @@
 ﻿using AvalonStudio.Extensibility;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.MVVM;
 using AvalonStudio.Shell;
 using ReactiveUI;
 using System;
 using System.IO;
+using System.Reactive;
 
 namespace AvalonStudio.Controls.Standard.WelcomeScreen
 {
@@ -16,9 +18,9 @@ namespace AvalonStudio.Controls.Standard.WelcomeScreen
 
             ClickCommand = ReactiveCommand.Create(() =>
             {
-                var shell = IoC.Get<IShell>();
+                var studio = IoC.Get<IStudio>();
 
-                shell.OpenSolutionAsync(_location);
+                studio.OpenSolutionAsync(_location);
             });
         }
 
@@ -38,6 +40,6 @@ namespace AvalonStudio.Controls.Standard.WelcomeScreen
             set { this.RaiseAndSetIfChanged(ref _location, value); }
         }
 
-        public ReactiveCommand ClickCommand { get; }
+        public ReactiveCommand<Unit, Unit> ClickCommand { get; }
     }
 }

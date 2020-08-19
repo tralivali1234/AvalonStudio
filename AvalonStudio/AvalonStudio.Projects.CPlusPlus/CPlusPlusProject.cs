@@ -1,6 +1,6 @@
 using AvalonStudio.Debugging;
 using AvalonStudio.Extensibility;
-using AvalonStudio.Extensibility.Menus;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.Platforms;
 using AvalonStudio.Projects.Standard;
 using AvalonStudio.Shell;
@@ -12,10 +12,12 @@ using Newtonsoft.Json.Converters;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Composition;
 using System.Dynamic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 
 [assembly: InternalsVisibleTo("AvalonStudio.Projects.CPlusPlus.UnitTests")]
 
@@ -27,7 +29,7 @@ namespace AvalonStudio.Projects.CPlusPlus
 
         private static Dictionary<string, Tuple<string, string>> passwordCache =
             new Dictionary<string, Tuple<string, string>>();
-
+        
         public CPlusPlusProject() : this(true)
         {
         }
@@ -79,12 +81,6 @@ namespace AvalonStudio.Projects.CPlusPlus
         public override List<string> ExcludedFiles { get; set; }
 
         [JsonIgnore]
-        public IList<IMenuItem> ProjectMenuItems
-        {
-            get { throw new NotImplementedException(); }
-        }
-
-        [JsonIgnore]
         public bool IsBuilding { get; set; }
 
         [JsonIgnore]
@@ -107,15 +103,22 @@ namespace AvalonStudio.Projects.CPlusPlus
             References.InsertSorted(project);
         }
 
-        public override void RemoveReference(IProject project)
+        public override bool RemoveReference(IProject project)
         {
-            References.Remove(project);
+            if (References.Contains(project))
+            {
+                References.Remove(project);
+
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
         ///     Resolves each reference, cloning and updating Git referenced projects where possible.
         /// </summary>
-        public override void ResolveReferences()
+        public override Task ResolveReferencesAsync()
         {
             foreach (var reference in UnloadedReferences)
             {
@@ -136,9 +139,11 @@ namespace AvalonStudio.Projects.CPlusPlus
                 }
                 else
                 {
-                    AddReference(new UnresolvedReference(Solution, Path.Combine(Solution.Location, reference.Name)));
+                    AddReference(new UnresolvedReference(Solution, Path.Combine(Solution.CurrentDirectory, reference.Name)));
                 }
             }
+
+            return Task.CompletedTask;
         }
 
         public IList<string> GetReferencedIncludes()
@@ -317,7 +322,14 @@ namespace AvalonStudio.Projects.CPlusPlus
 
         public override int CompareTo(IProject other)
         {
-            return Name.CompareTo(other.Name);
+            if (GetType() == other.GetType())
+            {
+                return Name.CompareTo(other.Name);
+            }
+            else
+            {
+                return GetType().FullName.CompareTo(other.GetType().FullName);
+            }
         }
 
         public override void ExcludeFile(ISourceFile file)
@@ -341,11 +353,11 @@ namespace AvalonStudio.Projects.CPlusPlus
         }
 
         [JsonIgnore]
-        public override IToolChain ToolChain
+        public override IToolchain ToolChain
         {
             get
             {
-                var result = IoC.Get<IShell>().ToolChains.FirstOrDefault(tc => tc.GetType().ToString() == ToolchainReference);
+                var result = IoC.GetInstances<IToolchain>().FirstOrDefault(tc => tc.GetType().ToString() == ToolchainReference);
 
                 return result;
             }
@@ -360,7 +372,7 @@ namespace AvalonStudio.Projects.CPlusPlus
         {
             get
             {
-                var result = IoC.Get<IShell>().Debugger2s.FirstOrDefault(tc => tc.GetType().ToString() == Debugger2Reference);
+                var result = IoC.GetInstances<IDebugger>().FirstOrDefault(tc => tc.GetType().ToString() == Debugger2Reference);
 
                 return result;
             }
@@ -375,10 +387,10 @@ namespace AvalonStudio.Projects.CPlusPlus
         {
             get
             {
-                var result = IoC.Get<IShell>()
-                    .TestFrameworks.FirstOrDefault(tf => tf.GetType().ToString() == TestFrameworkReference);
+                var result = IoC.Get<IStudio>()
+                    .TestFrameworks.FirstOrDefault(tf => tf.Value.GetType().ToString() == TestFrameworkReference);
 
-                return result;
+                return result?.Value;
             }
             set
             {
@@ -459,15 +471,12 @@ namespace AvalonStudio.Projects.CPlusPlus
 
                 if (!string.IsNullOrEmpty(settings.PostBuildCommands))
                 {
-                    result.AddRange(settings.PostBuildCommands.Split(new string[] { Environment.NewLine }, StringSplitOptions.None)); 
+                    result.AddRange(settings.PostBuildCommands.Split(new string[] { Environment.NewLine }, StringSplitOptions.None));
                 }
 
                 return result;
             }
         }
-
-        [JsonIgnore]
-        public override Guid ProjectTypeId => CPlusPlusProjectType.TypeId; 
 
         public static string GenerateProjectFileName(string name)
         {
@@ -479,6 +488,8 @@ namespace AvalonStudio.Projects.CPlusPlus
             if (!System.IO.File.Exists(filename))
             {
                 Console.WriteLine("Unable for find project file: " + filename);
+
+                return null;
             }
 
             var project = SerializedObject.Deserialize<CPlusPlusProject>(filename);
@@ -509,7 +520,7 @@ namespace AvalonStudio.Projects.CPlusPlus
 
             if (!System.IO.File.Exists(projectFile))
             {
-                var project = new CPlusPlusProject();                
+                var project = new CPlusPlusProject();
                 project.Location = projectFile;
 
                 project.Save();
@@ -673,6 +684,18 @@ namespace AvalonStudio.Projects.CPlusPlus
         public override int CompareTo(IProjectItem other)
         {
             return Name.CompareTo(other.Name);
+        }
+
+        public override bool IsItemSupported(string languageName)
+        {
+            switch(languageName)
+            {
+                case "C++":
+                    return true;
+
+                default:
+                    return false;
+            }
         }
     }
 }

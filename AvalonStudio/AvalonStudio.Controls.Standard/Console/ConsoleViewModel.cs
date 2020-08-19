@@ -2,29 +2,33 @@ using Avalonia.Threading;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
 using AvalonStudio.Extensibility;
-using AvalonStudio.Extensibility.Plugin;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.MVVM;
 using AvalonStudio.Shell;
-using AvalonStudio.TextEditor.Rendering;
 using AvalonStudio.Utils;
 using ReactiveUI;
 using System;
 using System.Collections.ObjectModel;
-using System.Text.RegularExpressions;
+using System.Composition;
 
 namespace AvalonStudio.Controls.Standard.Console
 {
-    public class ConsoleViewModel : ToolViewModel, IConsole, IPlugin
+    [ExportToolControl]
+    [Export(typeof(IExtension))]
+    [Export(typeof(IConsole))]
+    [Shared]
+    public class ConsoleViewModel : ToolViewModel, IConsole, IActivatableExtension
     {
         private ObservableCollection<IBackgroundRenderer> backgroundRenderers;
 
         private int caretIndex;
         private IShell shell;
 
-        public ConsoleViewModel()
-        {
-            Title = "Console";
+        public ConsoleViewModel() : base ("Output")
+        {            
             document = new TextDocument();
+            document.Insert(Document.TextLength, Environment.NewLine);
+            document.Insert(Document.TextLength, Environment.NewLine + "     ");
             backgroundRenderers = new ObservableCollection<IBackgroundRenderer>();
         }
 
@@ -57,17 +61,32 @@ namespace AvalonStudio.Controls.Standard.Console
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Document = new TextDocument();
+                document.Text = "";
+                document.Insert(Document.TextLength, Environment.NewLine);
+                document.Insert(Document.TextLength, Environment.NewLine + "     " + Environment.NewLine);
 
-                shell.BottomSelectedTool = this;
+                IsSelected = true;
             });
+        }
+
+        private void Insert(string data)
+        {
+            Document.Insert(Document.Lines[Document.LineCount - 2].Offset, data);
+        }
+
+        private void Overwrite(string data)
+        {
+            //Document.Insert(Document.Lines[Document.LineCount - 2].Offset, data);
+
+            var line = Document.Lines[Document.LineCount - 3];
+            Document.Replace(line, data);
         }
 
         public void Write(char data)
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Document.Insert(Document.TextLength, data.ToString());
+                Insert(data.ToString());
                 ScrollToEnd();
             });
         }
@@ -78,7 +97,7 @@ namespace AvalonStudio.Controls.Standard.Console
             {
                 Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    Document.Insert(Document.TextLength, data.Replace("\t", "    "));
+                    Insert(data.Replace("\t", "    "));
                     ScrollToEnd();
                 });
             }
@@ -88,7 +107,7 @@ namespace AvalonStudio.Controls.Standard.Console
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Document.Insert(Document.TextLength, Environment.NewLine);
+                Insert(Environment.NewLine);
                 ScrollToEnd();
             });
         }
@@ -99,7 +118,7 @@ namespace AvalonStudio.Controls.Standard.Console
             {
                 Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    Document.Insert(Document.TextLength, data.Replace("\t", "    ") + Environment.NewLine);
+                    Insert(data.Replace("\t", "    ") + Environment.NewLine);
                     ScrollToEnd();
                 });
             }
@@ -107,37 +126,30 @@ namespace AvalonStudio.Controls.Standard.Console
 
         public void OverWrite(string data)
         {
-            WriteLine(data);
+            if (data != null)
+            {
+                Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    Overwrite(data);
+                });
+            }
         }
 
         public void BeforeActivation()
         {
-            IoC.RegisterConstant(this, typeof(IConsole));
         }
 
         public void Activation()
         {
             shell = IoC.Get<IShell>();
-        }
 
-        public string Name
-        {
-            get { throw new NotImplementedException(); }
-        }
-
-        public Version Version
-        {
-            get { throw new NotImplementedException(); }
-        }
-
-        public string Description
-        {
-            get { throw new NotImplementedException(); }
+            shell.MainPerspective.AddOrSelectTool(this);
+            IoC.Get<IStudio>().DebugPerspective.AddOrSelectTool(this);
         }
 
         private void ScrollToEnd()
         {
-            CaretIndex = Document.TextLength;
+            CaretIndex = Document.TextLength - 1;            
         }
     }
 }

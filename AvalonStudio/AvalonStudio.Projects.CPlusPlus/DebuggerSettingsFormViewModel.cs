@@ -17,8 +17,13 @@ namespace AvalonStudio.Projects.CPlusPlus
 
         public DebuggerSettingsFormViewModel(CPlusPlusProject project) : base("Debugger", project)
         {
-            debuggers = new List<IDebugger>(IoC.Get<IShell>().Debugger2s);
+            debuggers = new List<IDebugger>(IoC.GetInstances<IDebugger>());
             selectedDebugger = project.Debugger2;
+
+            if (selectedDebugger != null)
+            {
+                DebugSettingsControl = selectedDebugger.GetSettingsControl(Model);
+            }
         }
 
         public object DebugSettingsControl

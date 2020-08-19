@@ -1,18 +1,22 @@
+using AvalonStudio.Extensibility.Shell;
 using AvalonStudio.Packages;
+using AvalonStudio.Packaging;
 using AvalonStudio.Platforms;
 using AvalonStudio.Projects;
+using AvalonStudio.Projects.CPlusPlus;
 using AvalonStudio.Projects.Standard;
 using AvalonStudio.Toolchains.GCC;
-using AvalonStudio.Toolchains.Standard;
 using AvalonStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.Composition;
 using System.IO;
 using System.Threading.Tasks;
-using AvalonStudio.Projects.CPlusPlus;
 
 namespace AvalonStudio.Toolchains.LocalGCC
 {
+    [ExportToolchain]
+    [Shared]
     public class LocalGCCToolchain : GCCToolchain
     {
         private static string _contentDirectory;
@@ -29,7 +33,7 @@ namespace AvalonStudio.Toolchains.LocalGCC
                 {
                     if (_contentDirectory == null)
                     {
-                        _contentDirectory = Path.Combine(PackageManager.GetPackageDirectory("AvalonStudio.Toolchains.GCC"), "content");
+                        _contentDirectory = PackageManager.GetPackageDirectory("Gcc").ToPlatformPath();
                     }
 
                     return _contentDirectory;
@@ -80,6 +84,12 @@ namespace AvalonStudio.Toolchains.LocalGCC
         public override string ExecutableExtension => Platform.ExecutableExtension;
 
         public override string StaticLibraryExtension => ".a";
+
+        [ImportingConstructor]
+        public LocalGCCToolchain(IStatusBar statusBar)
+            : base(statusBar)
+        {
+        }
 
         private string GetLinkerScriptLocation(IStandardProject project)
         {
@@ -350,16 +360,6 @@ namespace AvalonStudio.Toolchains.LocalGCC
             return result;
         }
 
-        public override IList<object> GetConfigurationPages(IProject project)
-        {
-            var result = new List<object>();
-
-            result.Add(new CompileSettingsFormViewModel(project));
-            result.Add(new LinkerSettingsFormViewModel(project));
-
-            return result;
-        }
-
         public override bool CanHandle(IProject project)
         {
             var result = false;
@@ -376,14 +376,22 @@ namespace AvalonStudio.Toolchains.LocalGCC
         {
             if (Platform.PlatformIdentifier == Platforms.PlatformID.Win32NT)
             {
-                if (await PackageManager.EnsurePackage("AvalonStudio.Toolchains.GCC", (project as CPlusPlusProject).ToolchainVersion, console) == PackageEnsureStatus.Installed)
+                var status = await PackageManager.EnsurePackage("AvalonStudio.Toolchains.GCC", (project as CPlusPlusProject).ToolchainVersion, console);
+                
+                switch(status)
                 {
-                    // this ensures content directory is re-evaluated if we just installed the toolchain.
-                    _contentDirectory = null;
+                    case PackageEnsureStatus.Installed:
+                        // this ensures content directory is re-evaluated if we just installed the toolchain.
+                        _contentDirectory = null;
+                        break;
+
+                    case PackageEnsureStatus.NotFound:
+                    case PackageEnsureStatus.Unknown:
+                        return false;
                 }
             }
 
-            return true;
+            return await base.InstallAsync(console, project);
         }
     }
 }

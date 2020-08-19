@@ -1,25 +1,30 @@
 using AvalonStudio.CommandLineTools;
 using AvalonStudio.Extensibility;
+using AvalonStudio.Extensibility.Shell;
+using AvalonStudio.Languages;
+using AvalonStudio.Packaging;
 using AvalonStudio.Platforms;
 using AvalonStudio.Projects;
 using AvalonStudio.Projects.Standard;
-using AvalonStudio.Shell;
 using AvalonStudio.Toolchains.Standard;
 using AvalonStudio.Utils;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Composition;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace AvalonStudio.Toolchains.GCC
 {
-    public abstract class GCCToolchain : StandardToolChain
+    public abstract class GCCToolchain : StandardToolchain
     {
         protected virtual bool RunWithSystemPaths => false;
 
         public virtual string GDBExecutable => "gdb";
 
-        public virtual string LibraryQueryCommand => "gcc";
+        public virtual string LibraryQueryCommand => CCExecutable;
 
         public abstract string GetBaseLibraryArguments(IStandardProject superProject);
 
@@ -55,12 +60,33 @@ namespace AvalonStudio.Toolchains.GCC
 
         public virtual string SizeExecutable => Path.Combine(BinDirectory, $"{SizePrefix}{SizeName}" + Platform.ExecutableExtension);
 
+        public virtual string SysRoot { get; set; }
+
+        public virtual string[] ExtraPaths => new string[0];
+
+        [ImportingConstructor]
+        public GCCToolchain(IStatusBar statusBar)
+            : base(statusBar)
+        {
+        }
+
+        public override IList<object> GetConfigurationPages(IProject project)
+        {
+            return new List<object>
+            {
+                new SysRootSettingsFormViewModel(project),
+                new CompileSettingsFormViewModel(project),
+                new LinkerSettingsFormViewModel(project)
+            };
+        }
+
         public override bool SupportsFile(ISourceFile file)
         {
             var result = false;
 
             switch (file.Extension.ToLower())
             {
+                case ".cc":
                 case ".cpp":
                 case ".c":
                 case ".s":
@@ -148,6 +174,35 @@ namespace AvalonStudio.Toolchains.GCC
             return result;
         }
 
+        private static readonly Regex errorRegex = new Regex((@"(?=.*(?:error|warning|line).*)(?<file>((?:[a-zA-Z]\:){0,1}(?:[\\\/][\w. ]+){1,})).*?(?<line>\d+).*?(?<column>\d+)(?::\s+)(?<type>warning|error)(?::\s+)(?<message>.*)"), RegexOptions.Compiled);
+
+        private void ParseOutputForErrors(IList<Diagnostic> diagnostics, ISourceFile file, string output)
+        {
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                return;
+            }
+
+            var match = errorRegex.Match(output);
+
+            var filename = match.Groups["file"].Value;
+            var type = match.Groups["type"].Value;
+            var lineText = match.Groups["line"].Value;
+            var columnText = match.Groups["column"].Value;
+            var code = match.Groups["code"].Value;
+            var message = match.Groups["message"].Value;
+
+            if (match.Success)
+            {
+                int.TryParse(lineText, out int line);
+                int.TryParse(columnText, out int column);
+
+                diagnostics.Add(new Diagnostic(0, 0, file.Project.Name,
+                filename, line, message, code,
+                type == "error" ? DiagnosticLevel.Error : DiagnosticLevel.Warning, DiagnosticCategory.Compiler, DiagnosticSourceKind.Build));
+            }
+        }
+
         public override CompileResult Compile(IConsole console, IStandardProject superProject, IStandardProject project, ISourceFile file, string outputFile)
         {
             var result = new CompileResult();
@@ -169,19 +224,30 @@ namespace AvalonStudio.Toolchains.GCC
             }
 
             var environment = superProject.GetEnvironmentVariables().AppendRange(Platform.EnvironmentVariables);
-            var arguments = string.Format("{0} {1} {2} -o{3} -MMD -MP", fileArguments, GetCompilerArguments(superProject, project, file), file.Location, outputFile).ExpandVariables(environment);
+
+            var arguments = "";
+
+            if (!string.IsNullOrWhiteSpace(SysRoot))
+            {
+                arguments = string.Format("{0} {1} {2} -o{3} -MMD -MP --sysroot=\"{4}\"", fileArguments, GetCompilerArguments(superProject, project, file), file.Location, outputFile, SysRoot).ExpandVariables(environment);
+            }
+            else
+            {
+                arguments = string.Format("{0} {1} {2} -o{3} -MMD -MP", fileArguments, GetCompilerArguments(superProject, project, file), file.Location, outputFile).ExpandVariables(environment);
+            }
 
             result.ExitCode = PlatformSupport.ExecuteShellCommand(commandName, arguments, (s, e) => console.WriteLine(e.Data), (s, e) =>
             {
                 if (e.Data != null)
                 {
+                    ParseOutputForErrors(result.Diagnostics, file, e.Data);
                     console.WriteLine();
                     console.WriteLine(e.Data);
                 }
             },
-            false, "", false, RunWithSystemPaths);
+            false, "", false, RunWithSystemPaths, ExtraPaths);
 
-            if (Shell.DebugMode)
+            if (Studio.DebugMode)
             {
                 console.WriteLine(Path.GetFileNameWithoutExtension(commandName) + " " + arguments);
             }
@@ -198,7 +264,7 @@ namespace AvalonStudio.Toolchains.GCC
             var objectArguments = string.Empty;
             foreach (var obj in assemblies.ObjectLocations)
             {
-                objectArguments += obj + " ";
+                objectArguments += project.Solution.CurrentDirectory.MakeRelativePath(obj).ToPlatformPath() + " ";
             }
 
             var libs = string.Empty;
@@ -214,11 +280,11 @@ namespace AvalonStudio.Toolchains.GCC
                 Directory.CreateDirectory(outputDir);
             }
 
-            var outputName = Path.GetFileNameWithoutExtension(outputPath) + ExecutableExtension;
+            var outputName = Path.GetFileName(outputPath);
 
             if (project.Type == ProjectType.StaticLibrary)
             {
-                outputName = Path.GetFileNameWithoutExtension(outputPath) + StaticLibraryExtension;
+                outputName = Path.GetFileName(outputPath);
             }
 
             var executable = Path.Combine(outputDir, outputName);
@@ -244,7 +310,8 @@ namespace AvalonStudio.Toolchains.GCC
 
                 foreach (var libraryPath in settings.LinkSettings.LinkedLibraries)
                 {
-                    libraryPaths += $"-Wl,--library-path={Path.Combine(project.CurrentDirectory, Path.GetDirectoryName(libraryPath)).ToPlatformPath()} ";
+                    var path = project.Solution.CurrentDirectory.MakeRelativePath(Path.Combine(project.CurrentDirectory, Path.GetDirectoryName(libraryPath)));
+                    libraryPaths += $"-Wl,--library-path={path.ToPlatformPath()} ";
 
                     var libName = Path.GetFileName(libraryPath);
 
@@ -253,7 +320,7 @@ namespace AvalonStudio.Toolchains.GCC
 
                 foreach (var script in settings.LinkSettings.LinkerScripts)
                 {
-                    linkerScripts += $"-Wl,-T\"{Path.Combine(project.CurrentDirectory, script)}\" ";
+                    linkerScripts += $"-Wl,-T\"{project.Solution.CurrentDirectory.MakeRelativePath(Path.Combine(project.CurrentDirectory, script)).ToPlatformPath()}\" ";
                 }
 
                 foreach (var lib in settings.LinkSettings.SystemLibraries)
@@ -278,7 +345,16 @@ namespace AvalonStudio.Toolchains.GCC
             else
             {
                 var environment = superProject.GetEnvironmentVariables().AppendRange(Platform.EnvironmentVariables);
-                arguments = string.Format("{0} {1} -o{2} {3} {4} -Wl,--start-group {5} {6} -Wl,--end-group", GetLinkerArguments(superProject, project).ExpandVariables(environment), linkerScripts, executable, objectArguments, libraryPaths, linkedLibraries, libs);
+
+                if(!string.IsNullOrWhiteSpace(SysRoot))
+                {
+                    arguments = string.Format("{0} {1} -o{2} {3} {4} -Wl,--start-group {5} {6} -Wl,--end-group --sysroot=\"{7}\"", GetLinkerArguments(superProject, project).ExpandVariables(environment), linkerScripts, executable, objectArguments, libraryPaths, linkedLibraries, libs, SysRoot);
+                }
+                else
+                {
+                    arguments = string.Format("{0} {1} -o{2} {3} {4} -Wl,--start-group {5} {6} -Wl,--end-group", GetLinkerArguments(superProject, project).ExpandVariables(environment), linkerScripts, executable, objectArguments, libraryPaths, linkedLibraries, libs);
+                }
+
             }
 
             result.ExitCode = PlatformSupport.ExecuteShellCommand(commandName, arguments, (s, e) =>
@@ -294,9 +370,9 @@ namespace AvalonStudio.Toolchains.GCC
                 {
                     console.WriteLine(e.Data);
                 }
-            }, false, project.Solution.CurrentDirectory, false, RunWithSystemPaths);
+            }, false, project.Solution.CurrentDirectory, false, RunWithSystemPaths, ExtraPaths);
 
-            if (Shell.DebugMode)
+            if (Studio.DebugMode)
             {
                 console.WriteLine(Path.GetFileNameWithoutExtension(commandName) + " " + arguments);
             }
@@ -360,6 +436,17 @@ namespace AvalonStudio.Toolchains.GCC
         public override async Task<bool> InstallAsync(IConsole console, IProject project)
         {
             await InitialiseInbuiltLibraries();
+
+            var settings = project.GetToolchainSettingsIfExists<GccToolchainSettings>();
+
+            if(settings != null && !string.IsNullOrWhiteSpace(settings.SysRoot) && (settings.SysRoot.Contains('?') || settings.SysRoot.Contains('='))) 
+            {
+                SysRoot = await PackageManager.ResolvePackagePathAsync(settings.SysRoot, appendExecutableExtension: false, console: console);
+            }
+            else
+            {
+                SysRoot = "";
+            }
 
             return true;
         }

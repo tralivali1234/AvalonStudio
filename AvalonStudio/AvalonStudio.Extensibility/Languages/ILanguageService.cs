@@ -1,32 +1,54 @@
-using AvaloniaEdit.Indentation;
 using AvalonStudio.Documents;
 using AvalonStudio.Editor;
+using AvalonStudio.Extensibility.Languages;
 using AvalonStudio.Extensibility.Languages.CompletionAssistance;
-using AvalonStudio.Extensibility.Plugin;
+using AvalonStudio.Projects;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading.Tasks;
 
 namespace AvalonStudio.Languages
 {
-    public interface ILanguageService : IExtension
+    public enum DiagnosticsUpdatedKind
     {
-        IIndentationStrategy IndentationStrategy { get; }
+        DiagnosticsRemoved,
+        DiagnosticsCreated
+    }
 
-        /// <summary>
-        ///     A description of the language supported by the service, i.e. C/C++
-        /// </summary>
-        string Title { get; }
+    public class DiagnosticsUpdatedEventArgs : EventArgs
+    {
+        public DiagnosticsUpdatedEventArgs(object tag, DiagnosticsUpdatedKind kind)
+        {
+            Tag = tag;
+            Kind = kind;
+            Source = DiagnosticSourceKind.Misc;
+        }
 
+        public DiagnosticsUpdatedEventArgs(object tag, string filePath, DiagnosticsUpdatedKind kind, DiagnosticSourceKind source, ImmutableArray<Diagnostic> diagnostics, SyntaxHighlightDataList diagnosticHighlights = null)
+        {
+            Tag = tag;
+            FilePath = filePath;
+            Kind = kind;
+            Diagnostics = diagnostics;
+            DiagnosticHighlights = diagnosticHighlights;
+            Source = source;
+        }
+
+        public object Tag { get; }
+        public string FilePath { get; }
+        public DiagnosticsUpdatedKind Kind { get; }
+        public DiagnosticSourceKind Source { get; }
+        public ImmutableArray<Diagnostic> Diagnostics { get; }
+        public SyntaxHighlightDataList DiagnosticHighlights { get; }
+    }
+
+    public interface ILanguageService
+    {
         /// <summary>
         /// A file path compatible name for the language, i.e. cs, cpp, ts, css, go, vb, fsharp
         /// </summary>
         string LanguageId { get; }
-
-        /// <summary>
-        /// An identifier compatible with Dot CLI language identifiers i.e. C#, F#, VB, etc
-        /// </summary>
-        string Identifier { get; }
 
         /// <summary>
         /// Dictionary of functions for transforming snippet variables. Key is function name, the arugment is the string to transform.
@@ -40,38 +62,46 @@ namespace AvalonStudio.Languages
         IDictionary<string, Func<int, int, int, string>> SnippetDynamicVariables { get; }
 
         bool CanTriggerIntellisense(char currentChar, char previousChar);
-        IEnumerable<char> IntellisenseSearchCharacters { get; }
-        IEnumerable<char> IntellisenseCompleteCharacters { get; }
-        IEnumerable<ICodeEditorInputHelper> InputHelpers { get; }
 
-        //IObservable<TextSegmentCollection<Diagnostic>> Diagnostics { get; }
+        IEnumerable<char> IntellisenseSearchCharacters { get; }
+
+        IEnumerable<char> IntellisenseCompleteCharacters { get; }
+
+        IEnumerable<ITextEditorInputHelper> InputHelpers { get; }
 
         bool IsValidIdentifierCharacter(char data);
 
-        Task<CodeCompletionResults> CodeCompleteAtAsync(IEditor editor, int index, int line, int column, List<UnsavedFile> unsavedFiles, char lastChar, string filter = "");
+        /// <summary>
+        /// Registers the editor that the instance of the language service is associated with.
+        /// Called when the editor is opened.
+        /// </summary>
+        void RegisterEditor(ITextEditor editor);
 
-        Task<CodeAnalysisResults> RunCodeAnalysisAsync(IEditor editor, List<UnsavedFile> unsavedFiles, Func<bool> interruptRequested);
+        /// <summary>
+        /// Unregisters the editor. Called when the editor is closed.
+        /// </summary>
+        void UnregisterEditor();
 
-        Task<SignatureHelp> SignatureHelp(IEditor editor, List<UnsavedFile> unsavedFiles, int offset, string methodName);
+        int Format(uint offset, uint length, int cursor);
 
-        Task<Symbol> GetSymbolAsync(IEditor editor, List<UnsavedFile> unsavedFiles, int offset);
+        int Comment(int firstLine, int endLine, int caret = -1, bool format = true);
 
-        Task<List<Symbol>> GetSymbolsAsync(IEditor editor, List<UnsavedFile> unsavedFiles, string name);
+        int UnComment(int firstLine, int endLine, int caret = -1, bool format = true);
 
-        Task<GotoDefinitionInfo> GotoDefinition(IEditor editor, int offset);
+        Task<CodeAnalysisResults> RunCodeAnalysisAsync(IEnumerable<UnsavedFile> unsavedFiles, Func<bool> interruptRequested);
 
-        Task<IEnumerable<SymbolRenameInfo>> RenameSymbol(IEditor editor, string renameTo);
+        Task<CodeCompletionResults> CodeCompleteAtAsync(int index, int line, int column, IEnumerable<UnsavedFile> unsavedFiles, char lastChar, string filter = "");
 
-        void RegisterSourceFile(IEditor editor);
+        Task<SignatureHelp> SignatureHelp(IEnumerable<UnsavedFile> unsavedFiles, int offset, string methodName);
 
-        void UnregisterSourceFile(IEditor editor);
+        Task<QuickInfoResult> QuickInfo(IEnumerable<UnsavedFile> unsavedFiles, int offset);
 
-        bool CanHandle(IEditor editor);
+        IEnumerable<IContextActionProvider> GetContextActionProviders();
 
-        int Format(IEditor editor, uint offset, uint length, int cursor);
+        Task<GotoDefinitionInfo> GotoDefinition(int offset);
 
-        int Comment(IEditor editor, int firstLine, int endLine, int caret = -1, bool format = true);
+        Task<IEnumerable<SymbolRenameInfo>> RenameSymbol(string renameTo);
 
-        int UnComment(IEditor editor, int firstLine, int endLine, int caret = -1, bool format = true);
+        Task<List<Symbol>> GetSymbolsAsync(IEnumerable<UnsavedFile> unsavedFiles, string name);
     }
 }

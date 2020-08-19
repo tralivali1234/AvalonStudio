@@ -1,28 +1,30 @@
-﻿namespace AvalonStudio.Debugging
+namespace AvalonStudio.Debugging
 {
     using Avalonia.Threading;
     using AvalonStudio.Documents;
     using AvalonStudio.Extensibility;
-    using AvalonStudio.Extensibility.Plugin;
+    using AvalonStudio.Extensibility.Shell;
+    using AvalonStudio.Extensibility.Studio;
     using AvalonStudio.Platforms;
     using AvalonStudio.Projects;
     using AvalonStudio.Shell;
     using AvalonStudio.Utils;
     using Mono.Debugging.Client;
     using System;
+    using System.Composition;
     using System.Reactive.Linq;
-    using System.Threading.Tasks;
     using System.Xml;
 
-    public class DebugManager2 : IDebugManager2, IExtension
+    [Export(typeof(IExtension)), Export(typeof(IDebugManager2)), Shared]
+    public class DebugManager2 : IDebugManager2, IActivatableExtension
     {
         private DebuggerSession _session;
         private object _sessionLock = new object();
         private StackFrame _currentStackFrame;
 
-        private IShell _shell;
+        private IStudio _studio;        
         private IConsole _console;
-        private IEditor _lastDocument;
+        private IDebugLineDocumentTabViewModel _lastDocument;
 
         public event EventHandler DebugSessionStarted;
 
@@ -76,7 +78,7 @@
         {
             if (!_loadingBreakpoints)
             {
-                var solution = _shell.CurrentSolution;
+                var solution = _studio.CurrentSolution;
 
                 Platform.EnsureSolutionUserDataDirectory(solution);
 
@@ -93,7 +95,7 @@
         {
             _loadingBreakpoints = true;
 
-            var solution = _shell.CurrentSolution;
+            var solution = _studio.CurrentSolution;
 
             if (solution != null)
             {
@@ -136,7 +138,7 @@
 
         public void Activation()
         {
-            _shell = IoC.Get<IShell>();
+            _studio = IoC.Get<IStudio>();
             _console = IoC.Get<IConsole>();
 
             var started = Observable.FromEventPattern(this, nameof(TargetStarted)).Select(e => true);
@@ -148,14 +150,14 @@
 
             var isRunning = hasSession.Merge(started).Merge(stopped).StartWith(false);
 
-            var canRun = _shell.OnSolutionLoaded().CombineLatest(isRunning, hasSession, _shell.OnCurrentTaskChanged(), (loaded, running, session, hasTask) => 
+            var canRun = _studio.OnSolutionLoaded().CombineLatest(isRunning, hasSession, _studio.OnCurrentTaskChanged(), (loaded, running, session, hasTask) =>
             {
                 return loaded && !running && (!hasTask || (hasTask && session));
             });
 
-            var canPause = _shell.OnSolutionLoaded().CombineLatest(isRunning, (loaded, running) => loaded && running);
+            var canPause = _studio.OnSolutionLoaded().CombineLatest(isRunning, (loaded, running) => loaded && running);
 
-            var canStop = _shell.OnSolutionLoaded().CombineLatest(sessionStarted.Merge(sessionEnded), (loaded, sessionActive) => loaded && SessionActive);
+            var canStop = _studio.OnSolutionLoaded().CombineLatest(sessionStarted.Merge(sessionEnded), (loaded, sessionActive) => loaded && SessionActive);
 
             var canStep = canStop.CombineLatest(isRunning, (stop, running) => stop && !running);
 
@@ -167,31 +169,19 @@
 
             CanStep = canStep.StartWith(false);
 
-            _shell.OnSolutionChanged.Subscribe(_ => LoadBreakpoints());
+            _studio.OnSolutionChanged.Subscribe(_ => LoadBreakpoints());
         }
 
         public void BeforeActivation()
         {
-            IoC.RegisterConstant<IDebugManager2>(this);
         }
 
         private void OnEndSession()
         {
-            Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                DebugSessionEnded?.Invoke(this, EventArgs.Empty);
-
-                _shell.CurrentPerspective = Perspective.Editor;
-
-                _lastDocument?.ClearDebugHighlight();
-                _lastDocument = null;
-            });
-
             lock (_sessionLock)
             {
                 if (_session != null)
-                {
-                    _session.Exit();
+                { 
                     _session.TargetUnhandledException -= _session_TargetStopped;
                     _session.TargetStopped -= _session_TargetStopped;
                     _session.TargetHitBreakpoint -= _session_TargetStopped;
@@ -200,13 +190,24 @@
                     _session.TargetExited -= _session_TargetExited;
                     _session.TargetStarted -= _session_TargetStarted;
                     _session.TargetReady -= _session_TargetReady;
-                    _session.Dispose();
+
+                    _session?.Dispose();
                     _session = null;
                 }
             }
 
-            // This will save breakpoints that were moved to be closer to actual sequence points.
-            Breakpoints.Save();
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                DebugSessionEnded?.Invoke(this, EventArgs.Empty);
+
+                _studio.CurrentPerspective = Perspective.Normal;
+
+                _lastDocument?.ClearDebugHighlight();
+                _lastDocument = null;
+
+                // This will save breakpoints that were moved to be closer to actual sequence points.
+                Breakpoints.Save();
+            });
         }
 
         public void Restart()
@@ -217,12 +218,12 @@
 
         public void Stop()
         {
-            OnEndSession();
+            _session?.Exit();
         }
 
         public async void Start()
         {
-            var project = _shell.GetDefaultProject();
+            var project = _studio.GetDefaultProject();
 
             if (project == null)
             {
@@ -233,7 +234,7 @@
 
             bool success = false;
 
-            await _shell.TaskRunner.RunTask(()=> success = project.ToolChain.Build(_console, project).GetAwaiter().GetResult());
+            success = await _studio.BuildAsync(project);
 
             if (!success)
             {
@@ -250,26 +251,27 @@
 
             var debugger2 = project.Debugger2 as IDebugger2;
 
-            await debugger2.InstallAsync(IoC.Get<IConsole>());
+            if (await debugger2.InstallAsync(IoC.Get<IConsole>(), project))
+            {
+                _session = debugger2.CreateSession(project);
 
-            _session = debugger2.CreateSession(project);
+                _session.TargetUnhandledException += _session_TargetStopped;
+                _session.TargetStopped += _session_TargetStopped;
+                _session.TargetHitBreakpoint += _session_TargetStopped;
+                _session.TargetSignaled += _session_TargetStopped;
+                _session.TargetInterrupted += _session_TargetStopped;
+                _session.TargetExited += _session_TargetExited;
+                _session.TargetStarted += _session_TargetStarted;
+                _session.TargetReady += _session_TargetReady;
 
-            _session.TargetUnhandledException += _session_TargetStopped;
-            _session.TargetStopped += _session_TargetStopped;
-            _session.TargetHitBreakpoint += _session_TargetStopped;
-            _session.TargetSignaled += _session_TargetStopped;
-            _session.TargetInterrupted += _session_TargetStopped;
-            _session.TargetExited += _session_TargetExited;
-            _session.TargetStarted += _session_TargetStarted;
-            _session.TargetReady += _session_TargetReady;
+                _session.Breakpoints = Breakpoints;
 
-            _session.Breakpoints = Breakpoints;
+                _session.Run(debugger2.GetDebuggerStartInfo(project), debugger2.GetDebuggerSessionOptions(project));
 
-            _session.Run(debugger2.GetDebuggerStartInfo(project), debugger2.GetDebuggerSessionOptions(project));
+                _studio.CurrentPerspective = Perspective.Debugging;
 
-            _shell.CurrentPerspective = Perspective.Debug;
-
-            DebugSessionStarted?.Invoke(this, EventArgs.Empty);
+                DebugSessionStarted?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         private void _session_TargetReady(object sender, TargetEventArgs e)
@@ -310,24 +312,25 @@
 
                     ISourceFile file = null;
 
-                    var document = _shell.GetDocument(normalizedPath);
+                    var document = _studio.GetEditor(normalizedPath);
 
                     if (document != null)
                     {
-                        _lastDocument = document;
+                        _lastDocument = document as IDebugLineDocumentTabViewModel;
                         file = document?.SourceFile;
                     }
 
                     if (file == null)
                     {
-                        file = _shell.CurrentSolution.FindFile(normalizedPath);
+                        file = _studio.CurrentSolution.FindFile(normalizedPath);
                     }
 
                     if (file != null)
                     {
-                        Dispatcher.UIThread.InvokeAsync(async () => 
+                        Dispatcher.UIThread.InvokeAsync(async () =>
                         {
-                            _lastDocument = await _shell.OpenDocumentAsync(file, sourceLocation.Line, sourceLocation.Column, sourceLocation.EndColumn, true);
+                            _lastDocument = await _studio.OpenDocumentAsync(file, sourceLocation.Line, sourceLocation.Column, sourceLocation.EndColumn, true)
+                                                as IDebugLineDocumentTabViewModel;
                         }).Wait();
                     }
                     else

@@ -1,4 +1,5 @@
 ﻿using AvalonStudio.Extensibility;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.Shell;
 using System;
 using System.IO;
@@ -7,22 +8,22 @@ using System.Threading.Tasks;
 
 namespace AvalonStudio.Projects
 {
-    public class Project
+    public class ProjectUtils
     {
-        public static async Task<IProject> LoadProjectFileAsync (ISolution solution, string fileName)
+        public static Guid? GetProjectTypeGuidForProject(string fileName)
         {
-            var shell = IoC.Get<IShell>();
+            var extension = Path.GetExtension(fileName);
 
-            var extension = Path.GetExtension(fileName).Remove(0, 1);
+            var projectType = IoC.Get<IStudio>().ProjectTypes.FirstOrDefault(
+                p => extension.EndsWith(p.Metadata.DefaultExtension));
 
-            var projectType = shell.ProjectTypes.FirstOrDefault(p => p.Extensions.Contains(extension));
-
-            if(projectType != null)
+            if (projectType == null)
             {
-                return await LoadProjectFileAsync(solution, projectType.ProjectTypeId, fileName);
+                projectType = IoC.Get<IStudio>().ProjectTypes.FirstOrDefault(
+                    p => p.Metadata.PossibleExtensions.Any(e => extension.EndsWith(e)));
             }
 
-            return new UnsupportedProjectType(fileName);
+            return projectType?.Metadata.ProjectTypeGuid;
         }
 
         public static async Task<IProject> LoadProjectFileAsync(ISolution solution, Guid projectTypeId, string fileName)
@@ -31,10 +32,17 @@ namespace AvalonStudio.Projects
 
             if (projectType != null)
             {
-                return await projectType.LoadAsync(solution, fileName);
+                try
+                {
+                    return await projectType.LoadAsync(solution, fileName);
+                }
+                catch (Exception)
+                {
+
+                }
             }
 
-            return new UnsupportedProjectType(fileName);
+            return new UnsupportedProjectType(solution, fileName);
         }
     }
 }

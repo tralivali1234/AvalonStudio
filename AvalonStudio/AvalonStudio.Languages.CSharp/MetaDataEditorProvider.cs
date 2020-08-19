@@ -1,32 +1,52 @@
-﻿using AvalonStudio.Documents;
+﻿using AvalonStudio.Controls.Editor;
+using AvalonStudio.Documents;
+using AvalonStudio.Extensibility;
 using AvalonStudio.Extensibility.Editor;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.Projects;
+using AvalonStudio.Shell;
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace AvalonStudio.Languages.CSharp
 {
-    class MetaDataEditorProvider : IEditorProvider
+    [ExportEditorProvider]
+    internal class CsharpEditorProvider : IEditorProvider
     {
-        public void Activation()
+        public bool CanEdit(ISourceFile file)
         {
-            
+            if(file is MetaDataFile)
+            {
+                return false;
+            }
+
+            return Path.GetExtension(file.FilePath) == ".cs";
         }
 
-        public void BeforeActivation()
+        public async Task<ITextDocumentTabViewModel> CreateViewModel(ISourceFile file)
         {
-            
-        }
 
+            return new CodeEditorViewModel(await IoC.Get<IStudio>().CreateDocumentAsync(file.FilePath), file);
+        }
+    }
+
+    [ExportEditorProvider]
+    internal class MetaDataEditorProvider : IEditorProvider
+    {
         public bool CanEdit(ISourceFile file)
         {
             return file.FilePath.StartsWith("$metadata");
         }
 
-        public IFileDocumentTabViewModel CreateViewModel(ISourceFile file)
+        public async Task<ITextDocumentTabViewModel> CreateViewModel(ISourceFile file)
         {
-            return new TextEditorViewModel(file) { IsReadOnly = true };
+            if (file is MetaDataFile metaDataFile)
+            {
+                return new CodeEditorViewModel(AvalonStudioTextDocument.Create(await metaDataFile.GetTextAsync()), file) { IsReadOnly = true };
+            }
+
+            throw new NotSupportedException();
         }
     }
 }

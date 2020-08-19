@@ -1,5 +1,7 @@
 ﻿using AvalonStudio.Extensibility;
+using AvalonStudio.Extensibility.Shell;
 using AvalonStudio.Packages;
+using AvalonStudio.Packaging;
 using AvalonStudio.Platforms;
 using AvalonStudio.Projects;
 using AvalonStudio.Projects.CPlusPlus;
@@ -9,30 +11,29 @@ using AvalonStudio.Toolchains.GCC;
 using AvalonStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.Composition;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace AvalonStudio.Toolchains.PublishedGCC
 {
+    [ExportToolchain]
+    [Shared]
     public class PublishedGCCToolchain : GCCToolchain
     {
-        private string _executableExtension;
-        private string _staticLibraryExtension;
-        private string _binDirectory;
-
         private PublishedGCCToolchainSettings _settings;
         private GccConfiguration _gccConfig;
 
-        public override string ExecutableExtension => _executableExtension;
+        public override string ExecutableExtension => "";
 
-        public override string StaticLibraryExtension => _staticLibraryExtension;
+        public override string StaticLibraryExtension => ".a";
 
         public override Version Version => new Version();
 
         public override string Description => "Allows developer to specify any GCC compatible toolchain to use.";
 
-        public override string BinDirectory => _binDirectory;
+        public override string BinDirectory => "";
 
         public override string CCExecutable => _gccConfig?.CC;
 
@@ -46,7 +47,26 @@ namespace AvalonStudio.Toolchains.PublishedGCC
 
         public override string GDBExecutable => _gccConfig?.Gdb;
 
+        public override string LibraryQueryCommand{
+            get
+            {
+                if(_gccConfig != null && !string.IsNullOrWhiteSpace(_gccConfig.LibraryQuery))
+                {
+                    return _gccConfig.LibraryQuery;
+                }
+                else
+                {
+                    return base.LibraryQueryCommand;
+                }
+            }
+        }
         //public override string LibraryQueryCommand => Path.Combine(BinDirectory, _settings.LibraryQueryCommand + Platform.ExecutableExtension);
+
+        [ImportingConstructor]
+        public PublishedGCCToolchain(IStatusBar statusBar)
+            : base (statusBar)
+        {
+        }
 
         public override bool CanHandle(IProject project)
         {
@@ -299,9 +319,7 @@ namespace AvalonStudio.Toolchains.PublishedGCC
             return new List<object>
             {
                 new PublishedToolchainSettingsViewModel(project),
-                new CompileSettingsFormViewModel(project),
-                new LinkerSettingsFormViewModel(project)
-        };
+            }.Concat(base.GetConfigurationPages(project)).ToList();
         }
 
         private string GetLinkerScriptLocation(IStandardProject project)
@@ -309,16 +327,51 @@ namespace AvalonStudio.Toolchains.PublishedGCC
             return Path.Combine(project.CurrentDirectory, "link.ld");
         }
 
+        public override IEnumerable<string> GetToolchainIncludes(ISourceFile file)
+        {
+            if (_gccConfig == null && file != null)
+            {
+                _settings = file.Project.Solution.StartupProject.GetToolchainSettings<PublishedGCCToolchainSettings>();
+
+                var manifest = PackageManager.GetPackageManifest(_settings.Toolchain, _settings.Version);
+
+                _gccConfig = GccConfiguration.FromManifest(manifest);
+
+                _gccConfig.ResolveAsync().GetAwaiter().GetResult();
+
+                //_gccConfig = GccConfigurationsManager.GetConfiguration(_settings.Toolchain, _settings.Version);
+
+                //_gccConfig?.ResolveAsync().GetAwaiter().GetResult();
+            }
+
+            var result = base.GetToolchainIncludes(file);
+
+            if (_gccConfig != null && _gccConfig.SystemIncludePaths != null)
+            {
+                result = result.Concat(_gccConfig.SystemIncludePaths);
+            }
+
+            return result;
+        }
+
         public override string GetLinkerArguments(IStandardProject superProject, IStandardProject project)
         {
             var settings = project.GetToolchainSettings<GccToolchainSettings>();
+
+            var result = string.Empty;
+
+            if (_gccConfig != null && _gccConfig.SystemLibraryPaths != null)
+            {
+                foreach (var libraryPath in _gccConfig.SystemLibraryPaths)
+                {
+                    result += $"-Wl,-L\"{libraryPath}\" ";
+                }
+            }
 
             if (superProject != null && settings.LinkSettings.UseMemoryLayout && project.Type != ProjectType.StaticLibrary)
             {
                 // GenerateLinkerScript(superProject);
             }
-
-            var result = string.Empty;
 
             result += string.Format("{0} ", settings.LinkSettings.MiscLinkerArguments);
 
@@ -376,13 +429,28 @@ namespace AvalonStudio.Toolchains.PublishedGCC
 
             _settings = project.GetToolchainSettings<PublishedGCCToolchainSettings>();
 
-            if(_settings.Toolchain != null)
+            if (_settings.Toolchain != null)
             {
-                await PackageManager.EnsurePackage(_settings.Toolchain, _settings.Version, IoC.Get<IConsole>(), ignoreRid: true);
+                var packageStatus = await PackageManager.EnsurePackage(_settings.Toolchain, _settings.Version, IoC.Get<IConsole>());
 
-                _gccConfig = GccConfigurationsManager.GetConfiguration(_settings.Toolchain, _settings.Version);
+                result = packageStatus == PackageEnsureStatus.Found || packageStatus == PackageEnsureStatus.Installed;
 
-                result = await _gccConfig.ResolveAsync();
+                if (result)
+                {
+                    var manifest = PackageManager.GetPackageManifest(_settings.Toolchain, _settings.Version);
+
+                    if (manifest != null)
+                    {
+                        _gccConfig = GccConfiguration.FromManifest(manifest);
+
+                        result = await _gccConfig.ResolveAsync();
+                    }
+                    else
+                    {
+                        console.WriteLine($"Toolchain: {_settings.Toolchain} v{_settings.Version} does not include a manifest with a valid gcc configuration.");
+                        result = false;
+                    }
+                }
             }
 
             if (result)

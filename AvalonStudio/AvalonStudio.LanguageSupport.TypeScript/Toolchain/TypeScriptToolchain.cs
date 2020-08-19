@@ -5,11 +5,14 @@ using AvalonStudio.Toolchains;
 using AvalonStudio.Utils;
 using System;
 using System.Collections.Generic;
+using System.Composition;
 using System.Threading.Tasks;
 
 namespace AvalonStudio.LanguageSupport.TypeScript.Toolchain
 {
-    public class TypeScriptToolchain : IToolChain
+    [ExportToolchain]
+    [Shared]
+    public class TypeScriptToolchain : IToolchain
     {
         /// <summary>
         /// Stub
@@ -23,18 +26,8 @@ namespace AvalonStudio.LanguageSupport.TypeScript.Toolchain
         public Version Version => new Version(0, 1, 1, 2);
 
         public string BinDirectory => null;
-
-        public void Activation()
-        {
-            //throw new NotImplementedException();
-        }
-
-        public void BeforeActivation()
-        {
-            //throw new NotImplementedException();
-        }
-
-        public Task<bool> Build(IConsole console, IProject project, string label = "", IEnumerable<string> definitions = null)
+        
+        public Task<bool> BuildAsync(IConsole console, IProject project, string label = "", IEnumerable<string> definitions = null)
         {
             console.WriteLine($"Build Started - {project.Name}");
             //Make sure tools are available
@@ -98,9 +91,9 @@ namespace AvalonStudio.LanguageSupport.TypeScript.Toolchain
             return new string[0];
         }
 
-        public Task InstallAsync(IConsole console)
+        public Task<bool> InstallAsync(IConsole console, IProject project)
         {
-            return Task.FromResult(0);
+            return Task.FromResult(true);
         }
     }
 }

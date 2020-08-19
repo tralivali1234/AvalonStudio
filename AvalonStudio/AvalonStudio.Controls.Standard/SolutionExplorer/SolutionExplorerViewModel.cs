@@ -1,36 +1,66 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Threading;
 using AvalonStudio.Extensibility;
-using AvalonStudio.Extensibility.Plugin;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.MVVM;
 using AvalonStudio.Platforms;
 using AvalonStudio.Projects;
 using AvalonStudio.Shell;
 using ReactiveUI;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Threading.Tasks;
-using System.Linq;
 using System;
-using Avalonia.Threading;
+using System.Collections.Generic;
+using System.Composition;
+using System.Linq;
+using System.Reactive.Linq;
 
 namespace AvalonStudio.Controls.Standard.SolutionExplorer
 {
-    public class SolutionExplorerViewModel : ToolViewModel, IExtension, ISolutionExplorer
+    [Export(typeof(ISolutionExplorer))]
+    [Export(typeof(IExtension))]
+    [ExportToolControl]
+    [Shared]
+    public class SolutionExplorerViewModel : ToolViewModel, IActivatableExtension, ISolutionExplorer
     {
-        public const string ToolId = "CIDSEVM00";
-
-        private ISolution model;
-
-        private ProjectItemViewModel selectedItem;
+        private ViewModel selectedItem;
 
         private IProject selectedProject;
-        private IShell shell;
+        private IStudio _studio;
+        private IShell _shell;
 
+        private ISolution model;
         private SolutionViewModel solution;
 
-        public SolutionExplorerViewModel()
+        private IEnumerable<Lazy<ISolutionType, SolutionTypeMetadata>> _solutionTypes;
+
+        [ImportingConstructor]
+        public SolutionExplorerViewModel(
+            [ImportMany] IEnumerable<Lazy<ISolutionType, SolutionTypeMetadata>> solutionTypes) : base("Solution Explorer")
         {
+            _shell = IoC.Get<IShell>();
+            _studio = IoC.Get<IStudio>();
+
+            _studio.SolutionChanged += (sender, e) => { Model = _studio.CurrentSolution; };
+
+            _solutionTypes = solutionTypes;
+
             Title = "Solution Explorer";
+
+            this.WhenAnyValue(x => x.SelectedItem).OfType<SourceFileViewModel>().Subscribe(async item =>
+            {
+                await IoC.Get<IStudio>().OpenDocumentAsync((ISourceFile)item.Model, 1);
+            });
+
+            this.WhenAnyValue(x => x.SelectedItem).OfType<ProjectViewModel>().Subscribe(async item =>
+            {
+                if (item.Model is IProject p)
+                {
+                    var sourceFile = FileSystemFile.FromPath(p, null, p.Location);
+
+                    await IoC.Get<IStudio>().OpenDocumentAsync(sourceFile, 1);
+                }
+            });
         }
 
         public new ISolution Model
@@ -48,7 +78,7 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer
                 }
 
                 SelectedProject = null;
-                
+
                 model = value;
 
                 if (Model != null)
@@ -70,6 +100,17 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer
             }
         }
 
+        internal void OnKeyDown(Key key, InputModifiers modifiers)
+        {
+            if (key == Key.Delete && modifiers == InputModifiers.None)
+            {
+                if (SelectedItem?.Model is IDeleteable deletable)
+                {
+                    deletable.Delete();
+                }
+            }
+        }
+
         public SolutionViewModel Solution
         {
             get { return solution; }
@@ -88,66 +129,37 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer
             }
         }
 
-        public ProjectItemViewModel SelectedItem
+        public ViewModel SelectedItem
         {
-            get
-            {
-                return selectedItem;
-            }
-            set
-            {
-                this.RaiseAndSetIfChanged(ref selectedItem, value);
-
-                if (value is SourceFileViewModel)
-                {
-                    shell.OpenDocument((ISourceFile)(value as SourceFileViewModel).Model);
-                }
-            }
+            get => selectedItem;
+            set => this.RaiseAndSetIfChanged(ref selectedItem, value);
         }
 
-        public override Location DefaultLocation
-        {
-            get { return Location.Right; }
-        }
-
-        public void BeforeActivation()
-        {
-            IoC.RegisterConstant<ISolutionExplorer>(this, typeof(ISolutionExplorer));
-        }
-
-        public void Activation()
-        {
-            shell = IoC.Get<IShell>();
-
-            shell.SolutionChanged += (sender, e) => { Model = shell.CurrentSolution; };
-        }
+        public override MVVM.Location DefaultLocation => MVVM.Location.Right;
 
         public void NewSolution()
         {
-            shell.ModalDialog = new NewProjectDialogViewModel(shell.CurrentSolution);
-            shell.ModalDialog.ShowDialog();
+            _shell.ModalDialog = new NewProjectDialogViewModel();
+            _shell.ModalDialog.ShowDialogAsync();
         }
 
         public async void OpenSolution()
         {
-            var dlg = new OpenFileDialog();
-            dlg.Title = "Open Solution";
+            var dlg = new OpenFileDialog
+            {
+                Title = "Open Solution",
 
-            if (Platform.PlatformIdentifier == Platforms.PlatformID.Win32NT)
-            {
-                dlg.InitialDirectory = Platform.ProjectDirectory;
-            }
-            else
-            {
-                dlg.InitialFileName = Platform.ProjectDirectory;
-            }
+                InitialDirectory = Platform.ProjectDirectory
+            };
 
             var allExtensions = new List<string>();
 
-            foreach (var solutionType in shell.SolutionTypes)
+            foreach (var solutionType in _solutionTypes)
             {
-                allExtensions.AddRange(solutionType.Extensions);
+                allExtensions.AddRange(solutionType.Metadata.SupportedExtensions);
             }
+
+            allExtensions = allExtensions.Distinct().ToList();
 
             dlg.Filters.Add(new FileDialogFilter
             {
@@ -155,21 +167,31 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer
                 Extensions = allExtensions
             });
 
-            foreach (var solutionType in shell.SolutionTypes)
+            foreach (var solutionType in _solutionTypes)
             {
                 dlg.Filters.Add(new FileDialogFilter
                 {
-                    Name = solutionType.Description,
-                    Extensions = solutionType.Extensions
+                    Name = solutionType.Value.Description,
+                    Extensions = solutionType.Metadata.SupportedExtensions.ToList()
                 });
             }
-            
-            var result = await dlg.ShowAsync();
+
+            var result = await dlg.ShowAsync(Application.Current.MainWindow);
 
             if (result != null && !string.IsNullOrEmpty(result.FirstOrDefault()))
             {
-                await shell.OpenSolutionAsync(result[0]);
+                await IoC.Get<IStudio>().OpenSolutionAsync(result[0]);
             }
+        }
+
+        public void BeforeActivation()
+        {
+        }
+
+        public void Activation()
+        {
+            IoC.Get<IShell>().MainPerspective.AddOrSelectTool(this);
+            IoC.Get<IStudio>().DebugPerspective.AddOrSelectTool(this);
         }
     }
 }

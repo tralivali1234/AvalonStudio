@@ -1,4 +1,5 @@
 ﻿using AvalonStudio.Extensibility;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.Shell;
 using AvalonStudio.Utils;
 using Microsoft.DotNet.Cli.Sln.Internal;
@@ -16,7 +17,8 @@ namespace AvalonStudio.Projects
 
         public static IProjectType GetProjectType(this Guid projectTypeId)
         {
-            return IoC.Get<IShell>().ProjectTypes.FirstOrDefault(type => type.ProjectTypeId == projectTypeId);
+            return IoC.Get<IStudio>().ProjectTypes.FirstOrDefault(
+                type => type.Metadata.ProjectTypeGuid == projectTypeId)?.Value;
         }
 
         internal static void SetParentInternal(this ISolutionItem item, ISolutionFolder parent)
@@ -78,6 +80,10 @@ namespace AvalonStudio.Projects
             else if (item is IProject && other is ISolutionFolder)
             {
                 return 1;
+            }
+            else if(item is IProject && other is IProject)
+            {
+                return (item as IProject).CompareTo(other as IProject);
             }
             else
             {

@@ -1,26 +1,29 @@
 using Avalonia.Media;
 using AvalonStudio.CommandLineTools;
 using AvalonStudio.Extensibility;
+using AvalonStudio.Extensibility.Studio;
 using AvalonStudio.MVVM;
 using AvalonStudio.Platforms;
 using AvalonStudio.Projects;
 using AvalonStudio.Shell;
 using ReactiveUI;
-using System;
 using System.Collections.ObjectModel;
+using System.Reactive;
 
 namespace AvalonStudio.Controls.Standard.SolutionExplorer
 {
     public abstract class ProjectViewModel : SolutionItemViewModel<IProject>
     {
+        private readonly IStudio studio;
         private readonly IShell shell;
         private ProjectConfigurationDialogViewModel configuration;
-
+        private bool _isExpanded;
         private bool visibility;
 
         public ProjectViewModel(ISolutionParentViewModel parent, IProject model)
             : base(parent, model)
         {
+            studio = IoC.Get<IStudio>();
             shell = IoC.Get<IShell>();
 
             Items = new ObservableCollection<ProjectItemViewModel>();
@@ -36,7 +39,7 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer
                         configuration = null;
                     });
 
-                    shell.AddDocument(configuration);
+                    shell.AddDocument(configuration, false);
                 }
                 else
                 {
@@ -50,29 +53,29 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer
                 //shell.Debug(model);
             });
 
-            BuildCommand = ReactiveCommand.Create(() => shell.Build(model));
+            BuildCommand = ReactiveCommand.CreateFromTask(async () => await studio.BuildAsync(model));
 
-            CleanCommand = ReactiveCommand.Create(()=>shell.Clean(model));
+            CleanCommand = ReactiveCommand.Create(() => studio.Clean(model));
 
             ManageReferencesCommand = ReactiveCommand.Create(() => { });
 
-            SetProjectCommand = ReactiveCommand.Create(()=>
+            SetProjectCommand = ReactiveCommand.Create(() =>
             {
                 model.Solution.StartupProject = model;
                 model.Solution.Save();
 
-                shell.InvalidateCodeAnalysis();
+                studio.InvalidateCodeAnalysis();
 
                 var root = this.FindRoot();
 
-                if(root != null)
+                if (root != null)
                 {
                     root.VisitChildren(solutionItem =>
                     {
                         solutionItem.RaisePropertyChanged(nameof(FontWeight));
                     });
                 }
-                
+
             });
 
             OpenInExplorerCommand = ReactiveCommand.Create(() => Platform.OpenFolderInExplorer(Model.CurrentDirectory));
@@ -80,39 +83,43 @@ namespace AvalonStudio.Controls.Standard.SolutionExplorer
             NewItemCommand = ReactiveCommand.Create(() =>
             {
                 shell.ModalDialog = new NewItemDialogViewModel(model);
-                shell.ModalDialog.ShowDialog();
+                shell.ModalDialog.ShowDialogAsync();
             });
 
             RemoveCommand = ReactiveCommand.Create(() =>
             {
-                shell.CloseDocumentsForProject(Model);
+                studio.CloseDocumentsForProject(Model);
                 Model.Solution.RemoveItem(Model);
                 Model.Solution.Save();
             });
 
-            DevConsoleCommand = ReactiveCommand.Create(() => 
+            DevConsoleCommand = ReactiveCommand.Create(() =>
             {
                 PlatformSupport.LaunchShell(Model.CurrentDirectory, Model.ToolChain?.BinDirectory, Model.Debugger2?.BinDirectory);
             });
         }
 
-        public bool IsExpanded { get; set; }
+        public bool IsExpanded
+        {
+            get { return _isExpanded; }
+            set { this.RaiseAndSetIfChanged(ref _isExpanded, value); }
+        }
 
         public bool IsVisible => !Model.Hidden;
 
         public ObservableCollection<ProjectItemViewModel> Items { get; }
 
-        public ReactiveCommand BuildCommand { get; protected set; }
-        public ReactiveCommand CleanCommand { get; protected set; }
-        public ReactiveCommand DebugCommand { get; protected set; }
-        public ReactiveCommand ManageReferencesCommand { get; protected set; }
-        public ReactiveCommand RemoveCommand { get; protected set; }
-        public ReactiveCommand ConfigureCommand { get; }
-        public ReactiveCommand SetProjectCommand { get; }
-        public ReactiveCommand OpenInExplorerCommand { get; }
-        public ReactiveCommand NewItemCommand { get; }
+        public ReactiveCommand<Unit, bool> BuildCommand { get; protected set; }
+        public ReactiveCommand<Unit, Unit> CleanCommand { get; protected set; }
+        public ReactiveCommand<Unit, Unit> DebugCommand { get; protected set; }
+        public ReactiveCommand<Unit, Unit> ManageReferencesCommand { get; protected set; }
+        public ReactiveCommand<Unit, Unit> RemoveCommand { get; protected set; }
+        public ReactiveCommand<Unit, Unit> ConfigureCommand { get; }
+        public ReactiveCommand<Unit, Unit> SetProjectCommand { get; }
+        public ReactiveCommand<Unit, Unit> OpenInExplorerCommand { get; }
+        public ReactiveCommand<Unit, Unit> NewItemCommand { get; }
 
-        public ReactiveCommand DevConsoleCommand { get; }
+        public ReactiveCommand<Unit, Unit> DevConsoleCommand { get; }
 
         public bool Visibility
         {

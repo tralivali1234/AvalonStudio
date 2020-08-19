@@ -1,37 +1,17 @@
-﻿using Avalonia.Ide.CompletionEngine;
+using Avalonia.Ide.CompletionEngine;
 using Avalonia.Ide.CompletionEngine.AssemblyMetadata;
-using Avalonia.Ide.CompletionEngine.SrmMetadataProvider;
+using Avalonia.Ide.CompletionEngine.DnlibMetadataProvider;
+using Avalonia.Threading;
 using AvalonStudio.Documents;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 
 namespace AvalonStudio.Languages.Xaml
 {
-    class XamlLanguageService : XmlLanguageService
+    internal class XamlLanguageService : XmlLanguageService
     {
-        public override string Title => "XAML";
-
         public override string LanguageId => "xaml";
-
-        public override string Identifier => "XAML";
-
-        public override bool CanHandle(IEditor editor)
-        {
-            var result = false;
-
-            switch (Path.GetExtension(editor.SourceFile.Location))
-            {
-                case ".xaml":
-                case ".paml":
-                    result = true;
-                    break;
-            }
-
-            return result;
-        }
 
         public override bool CanTriggerIntellisense(char currentChar, char previousChar)
         {
@@ -45,11 +25,11 @@ namespace AvalonStudio.Languages.Xaml
             return result;
         }
 
-        private static CodeCompletionKind FromAvaloniaCompletionKind (CompletionKind kind)
+        private static CodeCompletionKind FromAvaloniaCompletionKind(CompletionKind kind)
         {
             CodeCompletionKind result = CodeCompletionKind.None;
 
-            switch(kind)
+            switch (kind)
             {
                 case CompletionKind.Class:
                     return CodeCompletionKind.ClassPublic;
@@ -62,38 +42,48 @@ namespace AvalonStudio.Languages.Xaml
 
                 case CompletionKind.Namespace:
                     return CodeCompletionKind.NamespacePublic;
+
+                case CompletionKind.MarkupExtension:
+                    return CodeCompletionKind.MethodPublic;
             }
 
             return result;
         }
 
-        public override async Task<CodeCompletionResults> CodeCompleteAtAsync(IEditor editor, int index, int line, int column, List<UnsavedFile> unsavedFiles, char lastChar, string filter = "")
+        public override async Task<CodeCompletionResults> CodeCompleteAtAsync(int index, int line, int column, IEnumerable<UnsavedFile> unsavedFiles, char lastChar, string filter = "")
         {
             var results = new CodeCompletionResults();
 
             string text = string.Empty;
 
-            await Dispatcher.UIThread.InvokeAsync(()=> 
-            {
-                text = editor.Document.Text;
-            });
+            CreateMetaDataIfRequired(_editor.SourceFile.Project.Solution.StartupProject.Executable);
 
-            var completionSet = engine.GetCompletions(metaData, text, index);
-
-            if (completionSet != null)
+            if (metaData != null)
             {
-                foreach (var completion in completionSet.Completions)
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    results.Completions.Add(new CodeCompletionData(completion.DisplayText, completion.InsertText, completion.RecommendedCursorOffset)
-                    {
-                        BriefComment = completion.Description,
-                        Kind = FromAvaloniaCompletionKind(completion.Kind),
-                        RecommendImmediateSuggestions = completion.InsertText.Contains("=") || completion.InsertText.EndsWith('.')
-                    });
-                }
-            }
+                    text = _editor.Document.Text;
+                });
 
-            results.Contexts = CompletionContext.AnyType;
+                var completionSet = engine.GetCompletions(metaData, text, index);
+
+                if (completionSet != null)
+                {
+                    foreach (var completion in completionSet.Completions)
+                    {
+                        results.Completions.Add(new CodeCompletionData(completion.DisplayText, completion.DisplayText, completion.InsertText, completion.RecommendedCursorOffset)
+                        {
+                            BriefComment = completion.Description,
+                            Kind = FromAvaloniaCompletionKind(completion.Kind),
+                            RecommendImmediateSuggestions = completion.InsertText.Contains("=") || completion.InsertText.EndsWith('.')
+                        });
+                    }
+
+                    results.StartOffset = completionSet.StartPosition;
+                }
+
+                results.Contexts = CompletionContext.AnyType;
+            }
 
             return await Task.FromResult(results);
         }
@@ -101,22 +91,24 @@ namespace AvalonStudio.Languages.Xaml
         private static CompletionEngine engine = null;
         private static Metadata metaData = null;
 
-        public override void RegisterSourceFile(IEditor editor)
+        private void CreateMetaDataIfRequired(string executable)
         {
+            if (metaData == null && File.Exists(executable))
+            {
+                metaData = new MetadataReader(new DnlibMetadataProvider()).GetForTargetAssembly(executable);
+            }
+        }
+
+        public override void RegisterEditor(ITextEditor editor)
+        {
+            base.RegisterEditor(editor);
+
             if (engine == null)
             {
                 engine = new CompletionEngine();
             }
 
-            if (metaData == null)
-            {
-                metaData = new MetadataReader(new SrmMetadataProvider()).GetForTargetAssembly(editor.SourceFile.Project.Solution.StartupProject.Executable);
-            }
-        }
-
-        public override void UnregisterSourceFile(IEditor editor)
-        {
-
+            CreateMetaDataIfRequired(editor.SourceFile.Project.Solution.StartupProject.Executable);
         }
     }
 }

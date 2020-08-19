@@ -1,9 +1,10 @@
 ﻿namespace AvalonStudio.Controls.Standard.SolutionExplorer
 {
+    using Avalonia;
     using Avalonia.Controls;
     using AvalonStudio.Extensibility;
+    using AvalonStudio.Extensibility.Studio;
     using AvalonStudio.MVVM;
-    using AvalonStudio.Platforms;
     using AvalonStudio.Projects;
     using AvalonStudio.Shell;
     using ReactiveUI;
@@ -11,6 +12,8 @@
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
     using System.Linq;
+    using System.Reactive;
+    using System.Reactive.Linq;
 
     public abstract class SolutionParentViewModel<T> : SolutionItemViewModel<T>, ISolutionParentViewModel
         where T : ISolutionFolder
@@ -25,58 +28,97 @@
 
             AddNewFolderCommand = ReactiveCommand.Create(() =>
             {
-                Model.Solution.AddItem(SolutionFolder.Create("New Folder"), Model);
+                var observable = Items.ObserveNewItems().OfType<SolutionFolderViewModel>().FirstOrDefaultAsync();
 
-                Model.Solution.Save();
+                using (var subscription = observable.Subscribe(item =>
+                {
+                    item.InEditMode = true;
+                }))
+                {
+                    Model.Solution.AddItem(SolutionFolder.Create("New Folder"), null, Model);
+
+                    Model.Solution.Save();
+                }                
             });
 
-            AddExistingProjectCommand = ReactiveCommand.Create(async () =>
+            AddExistingProjectCommand = ReactiveCommand.CreateFromTask(async () =>
             {
                 var dlg = new OpenFileDialog();
                 dlg.Title = "Open Project";
 
-                var extensions = new List<string>();
-
-                var shell = IoC.Get<IShell>();
-
-                foreach (var projectType in shell.ProjectTypes)
+                foreach (var projectType in IoC.Get<IStudio>().ProjectTypes)
                 {
-                    extensions.AddRange(projectType.Extensions);
+                    var projectTypeMetadata = projectType.Metadata;
+                    var extensions = new List<string>();
+
+                    extensions.Add(projectTypeMetadata.DefaultExtension);
+                    extensions.AddRange(projectTypeMetadata.PossibleExtensions);
+
+                    dlg.Filters.Add(new FileDialogFilter() { Name = projectTypeMetadata.Description, Extensions = extensions });
                 }
 
-                dlg.Filters.Add(new FileDialogFilter { Name = "AvalonStudio Project", Extensions = extensions });
-
-                if (Platform.PlatformIdentifier == Platforms.PlatformID.Win32NT)
-                {
-                    dlg.InitialDirectory = Model.Solution.CurrentDirectory;
-                }
-                else
-                {
-                    dlg.InitialFileName = Model.Solution.CurrentDirectory;
-                }
+                dlg.InitialDirectory = Model.Solution.CurrentDirectory;
 
                 dlg.AllowMultiple = false;
 
-                var result = await dlg.ShowAsync();
+                var result = await dlg.ShowAsync(Application.Current.MainWindow);
 
                 if (result != null && !string.IsNullOrEmpty(result.FirstOrDefault()))
                 {
-                    var proj = await Project.LoadProjectFileAsync(Model.Solution, result[0]);
+                    var projectTypeGuid = ProjectUtils.GetProjectTypeGuidForProject(result[0]);
 
-                    if (proj != null)
+                    if (projectTypeGuid.HasValue)
                     {
-                        Model.Solution.AddItem(proj, Model);
-                        Model.Solution.Save();
+                        var proj = await ProjectUtils.LoadProjectFileAsync(Model.Solution, projectTypeGuid.Value, result[0]);
+
+                        if (proj != null)
+                        {
+                            var observable = Items.ObserveNewItems().OfType<SolutionItemViewModel>().FirstOrDefaultAsync();
+
+                            using (var subscription = observable.Subscribe(item =>
+                            {
+                                if (item is ProjectViewModel pvm)
+                                {
+                                    pvm.IsExpanded = true;
+                                }
+                            }))
+                            {
+                                Model.Solution.AddItem(proj, projectTypeGuid, Model);
+                                Model.Solution.Save();
+
+                                await observable;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        IoC.Get<Utils.IConsole>().WriteLine(
+                            $"The project '{result[0]}' isn't supported by any installed project type!");
                     }
                 }
             });
 
-            AddNewProjectCommand = ReactiveCommand.Create(() =>
+            AddNewProjectCommand = ReactiveCommand.CreateFromTask(async () =>
             {
                 var shell = IoC.Get<IShell>();
 
                 shell.ModalDialog = new NewProjectDialogViewModel(Model);
-                shell.ModalDialog.ShowDialog();
+
+                if (await shell.ModalDialog.ShowDialogAsync())
+                {
+                    var observable = Items.ObserveNewItems().OfType<SolutionItemViewModel>().FirstOrDefaultAsync();
+
+                    using (var subscription = observable.Subscribe(item =>
+                    {
+                        if (item is ProjectViewModel pvm)
+                        {
+                            pvm.IsExpanded = true;
+                        }
+                    }))
+                    {
+                        await observable;
+                    }
+                }
             });
 
             RemoveCommand = ReactiveCommand.Create(() =>
@@ -125,9 +167,9 @@
             }
         }
 
-        public ReactiveCommand AddNewFolderCommand { get; private set; }
-        public ReactiveCommand AddNewProjectCommand { get; private set; }
-        public ReactiveCommand AddExistingProjectCommand { get; private set; }
-        public ReactiveCommand RemoveCommand { get; private set; }
+        public ReactiveCommand<Unit, Unit> AddNewFolderCommand { get; private set; }
+        public ReactiveCommand<Unit, Unit> AddNewProjectCommand { get; private set; }
+        public ReactiveCommand<Unit, Unit> AddExistingProjectCommand { get; private set; }
+        public ReactiveCommand<Unit, Unit> RemoveCommand { get; private set; }
     }
 }

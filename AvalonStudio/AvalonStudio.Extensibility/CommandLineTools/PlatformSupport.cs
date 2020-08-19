@@ -1,4 +1,5 @@
-﻿using AvalonStudio.Platforms;
+﻿using Avalonia;
+using AvalonStudio.Platforms;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -89,8 +90,8 @@ namespace AvalonStudio.CommandLineTools
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
-                    WorkingDirectory = workingDirectory
-                }
+                    WorkingDirectory = workingDirectory,                    
+                }                
             };
 
             if(!includeSystemPaths)
@@ -136,13 +137,72 @@ namespace AvalonStudio.CommandLineTools
                 shellProc.ErrorDataReceived += (s, a) => errorReceivedCallback(s, a);
             }
 
-            shellProc.Start();
+            shellProc.EnableRaisingEvents = true;
+            new ProcessManager(shellProc);
 
-            shellProc.BeginOutputReadLine();
-            shellProc.BeginErrorReadLine();
+            try
+            {
+                shellProc.Start();
+
+                shellProc.BeginOutputReadLine();
+                shellProc.BeginErrorReadLine();
+            }
+            catch { }
 
             return shellProc;
         }
+
+        public class ProcessManager
+        {
+            private Process _process;
+
+            public ProcessManager (Process process)
+            {
+                _process = process;
+
+                if (Application.Current != null)
+                {
+                    Application.Current.OnExit += Current_OnExit;
+
+                    _process.Exited += _process_Exited;
+                }
+            }
+
+            private void Current_OnExit(object sender, EventArgs e)
+            {
+                try
+                {
+                    if (!_process.HasExited)
+                    {
+                        _process.Kill();
+                    }
+                }
+                catch
+                {
+
+                }
+            }
+
+            private void _process_Exited(object sender, EventArgs e)
+            {
+                if (Application.Current != null)
+                {
+                    _process.Exited -= _process_Exited;
+
+                    Application.Current.OnExit -= Current_OnExit;
+                }
+
+                _process = null;
+            }
+        }
+
+        public static string[] GetSystemPaths ()
+        {
+            var result = ExecuteShellCommand("/bin/bash", "-l -c 'echo $PATH'");
+
+            return result.Output.Split(':');
+        }
+
 
         public static int ExecuteShellCommand(string commandName, string args, Action<object, DataReceivedEventArgs>
             outputReceivedCallback, Action<object, DataReceivedEventArgs> errorReceivedCallback = null, bool resolveExecutable = true,

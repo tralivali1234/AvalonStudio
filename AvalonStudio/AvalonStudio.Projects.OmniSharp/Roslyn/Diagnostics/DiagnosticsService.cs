@@ -3,9 +3,10 @@ using System.Collections.Generic;
 using System.Composition;
 using System.Linq;
 using System.Threading;
+using AvalonStudio.Extensibility;
 using Microsoft.CodeAnalysis;
 
-namespace RoslynPad.Roslyn.Diagnostics
+namespace AvalonStudio.Projects.OmniSharp.Roslyn.Diagnostics
 {
     [Export(typeof(IDiagnosticService)), Shared]
     internal sealed class DiagnosticsService : IDiagnosticService
@@ -16,7 +17,7 @@ namespace RoslynPad.Roslyn.Diagnostics
         public DiagnosticsService(Microsoft.CodeAnalysis.Diagnostics.IDiagnosticService inner)
         {
             _inner = inner;
-            inner.DiagnosticsUpdated += OnDiagnosticsUpdated;
+            inner.DiagnosticsUpdated += OnDiagnosticsUpdated;            
         }
 
         // ReSharper disable once UnusedParameter.Local

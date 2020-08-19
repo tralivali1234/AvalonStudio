@@ -16,7 +16,7 @@ using System.Globalization;
 using Microsoft.TemplateEngine.Orchestrator.RunnableProjects;
 using Microsoft.TemplateEngine.Orchestrator.RunnableProjects.Config;
 using Microsoft.TemplateEngine.Edge.TemplateUpdates;
-using AvalonStudio.Extensibility.Plugin;
+using System.Composition;
 
 namespace AvalonStudio.Extensibility.Templating
 {
@@ -31,7 +31,9 @@ namespace AvalonStudio.Extensibility.Templating
         Cancelled = unchecked((int)0x80004004)
     }
 
-    public class TemplateManager : IExtension
+    [Export(typeof(TemplateManager))]
+    [Shared]
+    public class TemplateManager : IActivatableExtension
     {
         private const string HostIdentifier = "AvalonStudio";
         private const string HostVersion = "1.0.0";
@@ -93,7 +95,7 @@ namespace AvalonStudio.Extensibility.Templating
             {
                 _settingsLoader.RebuildCacheFromSettingsIfNotCurrent(forceCacheRebuild);
             }
-            catch (EngineInitializationException eiex)
+            catch (EngineInitializationException)
             {
                 ////Reporter.Error.WriteLine(eiex.Message.Bold().Red());
                 ////Reporter.Error.WriteLine(LocalizableStrings.SettingsReadError);
@@ -108,25 +110,29 @@ namespace AvalonStudio.Extensibility.Templating
             return ListTemplates(language, TemplateKind.Project);
         }
 
-        public async Task<CreationResult> CreateTemplate(ITemplate template, string path, string name = "")
+        public async Task<CreationResult> CreateTemplate(ITemplate template, string path, params (string name, string value)[] parameters )
         {
             if (template is DotNetTemplateAdaptor templateImpl)
             {
-                if (string.IsNullOrEmpty(name))
+                var parameterList = new List<string>
                 {
-                    _commandInput.ResetArgs(templateImpl.DotnetTemplate.Info.ShortName, "--output", path);
-                }
-                else
+                    templateImpl.DotnetTemplate.ShortName,
+                    "--output",
+                    path
+                };
+
+                foreach (var (name, value) in parameters)
                 {
-                    _commandInput.ResetArgs(templateImpl.DotnetTemplate.Info.ShortName, "--output", path, "--name", name);
+                    parameterList.Add($"--{name}");
+                    parameterList.Add(value);
                 }
+
+                _commandInput.ResetArgs(parameterList.ToArray());                
 
                 string fallbackName = new DirectoryInfo(_commandInput.OutputPath ?? Directory.GetCurrentDirectory()).Name;
 
-                var result = await _templateCreator.InstantiateAsync(templateImpl.DotnetTemplate.Info, _commandInput.Name, fallbackName, _commandInput.OutputPath, templateImpl.DotnetTemplate.GetValidTemplateParameters(), _commandInput.SkipUpdateCheck, _commandInput.IsForceFlagSpecified, _commandInput.BaselineName).ConfigureAwait(false);
-
+                var result = await _templateCreator.InstantiateAsync(templateImpl.DotnetTemplate, _commandInput.Name, fallbackName, _commandInput.OutputPath, parameters.ToDictionary(x => x.name, x=> x.value), _commandInput.SkipUpdateCheck, _commandInput.IsForceFlagSpecified, _commandInput.BaselineName).ConfigureAwait(false);
                 return (CreationResult)result.Status;
-
             }
 
             return CreationResult.NotFound;
@@ -158,16 +164,16 @@ namespace AvalonStudio.Extensibility.Templating
         {
             var templateList = TemplateListResolver.GetTemplateResolutionResult(_settingsLoader.UserTemplateCache.TemplateInfo, _hostDataLoader, _commandInput, _defaultLanguage);
 
-            if (templateList.TryGetUnambiguousTemplateGroupToUse(out IReadOnlyList<ITemplateMatchInfo> unambiguousTemplateGroupForDetailDisplay))
+            if (templateList.TryGetUnambiguousTemplateGroupToUse(out IReadOnlyList<ITemplateMatchInfo> unambiguousTemplateGroupForDetailDisplay, true))
             {
-                return unambiguousTemplateGroupForDetailDisplay.Where(t => t.IsMatch).Select(ti => new DotNetTemplateAdaptor(ti, kind)).ToList().AsReadOnly();
+                return unambiguousTemplateGroupForDetailDisplay.Where(t => t.IsMatch).Select(ti => new DotNetTemplateAdaptor(ti.Info)).ToList().AsReadOnly();
             }
 
             var ambiguous = templateList.GetBestTemplateMatchList(true);
 
             var groups = HelpForTemplateResolution.GetLanguagesForTemplateInfoGroups(ambiguous, language, "C#");
 
-            return groups.Keys.Where(t => t.IsMatch).Select(ti => new DotNetTemplateAdaptor(ti, kind)).ToList().AsReadOnly();
+            return groups.Keys.Where(t => t.IsMatch).Select(ti => new DotNetTemplateAdaptor(ti.Info)).ToList().AsReadOnly();
         }
 
         private bool ConfigureLocale()
@@ -305,19 +311,41 @@ namespace AvalonStudio.Extensibility.Templating
 
         private static void FirstRun(IEngineEnvironmentSettings environmentSettings, IInstaller installer)
         {
+            UpdatePackages(installer);
+        }
+
+        public void BeforeActivation()
+        {            
+        }
+
+        public void Activation()
+        {
+        }
+
+        public void UpdateDefaultTemplates()
+        {
+            UpdatePackages(Installer);
+        }
+
+        private static void UpdatePackages (IInstaller installer)
+        {
             var packages = new List<string> { "VitalElement.AvalonStudio.Templates" };
 
             installer.InstallPackages(packages);
         }
 
-        public void BeforeActivation()
-        {
-            IoC.RegisterConstant(this);
-        }
+        public IDictionary<string, IEnumerable<ITemplate>> GetProjectTemplates() => GetTemplates(TemplateKind.Project);
+        public IDictionary<string, IEnumerable<ITemplate>> GetItemTemplates() => GetTemplates(TemplateKind.Item);
 
-        public void Activation()
+        private IDictionary<string, IEnumerable<ITemplate>> GetTemplates(TemplateKind kind)
         {
+            var templates = new HashSet<ITemplateInfo>();
+            _settingsLoader.GetTemplates(templates);
 
+            return templates.Where(t => t.GetTemplateKind() == kind)
+                .Select(t => new DotNetTemplateAdaptor(t))
+                .GroupBy(t => t.Language)
+                .ToDictionary(t => t.Key, t => t.AsEnumerable<ITemplate>());
         }
     }
 }

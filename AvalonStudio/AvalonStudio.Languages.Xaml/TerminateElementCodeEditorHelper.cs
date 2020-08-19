@@ -6,37 +6,56 @@ using System;
 
 namespace AvalonStudio.Languages.Xaml
 {
-    class TerminateElementCodeEditorHelper : ICodeEditorInputHelper
+    class TerminateElementCodeEditorHelper : ITextEditorInputHelper
     {
-        public void AfterTextInput(ILanguageService languageServivce, IEditor editor, TextInputEventArgs args)
+        public bool AfterTextInput(ITextEditor editor, string text)
         {
-            if (args.Text == "/")
+            if (text == "/")
             {
-                var textBefore = editor.Document.GetText(0, Math.Max(0, editor.CaretOffset - 1));
+                var textBefore = editor.Document.GetText(0, Math.Max(0, editor.Offset));
 
                 var nextChar = '\0';
 
-                if(editor.CaretOffset < editor.Document.TextLength)
+                if(editor.Offset < editor.Document.TextLength)
                 {
-                    nextChar = editor.Document.GetCharAt(editor.CaretOffset);
+                    nextChar = editor.Document.GetCharAt(editor.Offset);
                 }
 
-                if (textBefore.Length > 2 && textBefore[textBefore.Length - 1] != '/' && nextChar != '>')
+                if (textBefore.Length > 2 && nextChar != '>')
                 {
                     var state = XmlParser.Parse(textBefore);
-                    if (state.State == XmlParser.ParserState.InsideElement
-                        || state.State == XmlParser.ParserState.StartElement
-                        || state.State == XmlParser.ParserState.AfterAttributeValue)
+
+                    if (state.State == XmlParser.ParserState.StartElement)
                     {
-                        var caret = editor.CaretOffset;
-                        editor.Document.Insert(caret, ">");
-                        editor.CaretOffset = caret + 1;
+                        var closingState = XmlParser.Parse(editor.Document.GetText(0, Math.Max(0, editor.Offset - 2)));
+
+                        var tagName = closingState.GetParentTagName(0);
+                        
+                        var caret = editor.Offset;
+
+                        if (tagName != null)
+                        {
+                            editor.Document.Insert(caret, $"{tagName}>");
+                            editor.Offset = caret + (tagName.Length + 1);
+                        }
+                        else
+                        {
+                            editor.Document.Insert(caret, ">");
+                            editor.Offset = caret + (state.TagName == string.Empty ? 0 : 1);
+                        }
                     }
                 }
             }
+
+            return false;
         }
 
-        public void BeforeTextInput(ILanguageService languageService, IEditor editor, TextInputEventArgs args)
+        public bool BeforeTextInput(ITextEditor editor, string text)
+        {
+            return false;
+        }
+
+        public void CaretMovedToEmptyLine(ITextEditor editor)
         {
         }
     }
